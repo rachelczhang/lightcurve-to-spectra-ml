@@ -98,11 +98,12 @@ def query_oba_catalog():
 	reads in oba-cat.dat and returns all of the TIC IDs corresponding to all of the 
 	O spectral type stars in the catalog
 	"""	
-	with open('oba-cat.dat', 'r') as file:
+	with open('../oba-cat.dat', 'r') as file:
 		lines = file.readlines()
 		tic_ids = []
 		j_h = []
 		j_k = []
+		spectral_type = []
 		for line in lines:
 			term = line.split( )
 			# if float(term[7])-float(term[9]) < 0.045 and float(term[7])-float(term[11]) < 0.06:
@@ -114,15 +115,16 @@ def query_oba_catalog():
 			# else:
 			# 	print('term', term)
 			# 	print('J-H', float(term[7])-float(term[9]), 'J-K', float(term[7])-float(term[11]), 'len', len(term))
-			if 'O' in term[-1] and len(term) == 24:
+			if term[-1][0] == 'O' and len(term) == 24:
 				tic_ids.append(int(term[0]))
 				j_h.append(float(term[7])-float(term[9]))
 				j_k.append(float(term[7])-float(term[11]))
+				spectral_type.append(term[-1])
 		print('J-H', max(j_h), min(j_h))
 		print('J-K', max(j_k), min(j_k))
 		print('len', len(tic_ids))
-		return tic_ids
-
+		return tic_ids, spectral_type 
+	
 def collect_fits(searchpattern):
 	"""
 	takes a string of the search pattern to search for all data files with that ID 
@@ -194,20 +196,23 @@ def light_curve_to_power_spectrum(time, flux):
 
 	
 if __name__ == '__main__':
-	tic_ids = query_oba_catalog()
+	tic_ids, spectral_type = query_oba_catalog()
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
 	# pandas dataframe to store all the data of TIC ID, time, flux
 	df = pd.DataFrame(columns=['TIC ID', 'Time', 'Flux'])
+	ind = 0
 	for tic_id in tic_ids:
+		sp_type = spectral_type[ind]
 		sectorids, lcpaths, tppaths = db.search(tic_id)
 		if lcpaths != 0:
 			for filepath in lcpaths:
 				time, flux = read_light_curve(filepath)
-				# add tic_id, time, flux to pandas dataframe
-				df = df._append({'TIC ID': tic_id, 'Time': time, 'Flux': flux}, ignore_index=True)
+				df = df._append({'TIC ID': tic_id, 'Time': time, 'Flux': flux, 'Spectral Type': sp_type}, ignore_index=True)
+		ind += 1
 	print('df', df)
 	print('len df', len(df))
+	df.to_hdf('tessOstars.h5', key='df', mode='w')
 	# time, flux = stitch_light_curve(searchpattern)
 	# plot_light_curve(time, flux)
 	# light_curve_to_power_spectrum(time, flux)
