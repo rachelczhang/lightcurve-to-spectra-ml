@@ -8,6 +8,7 @@ from astroquery.mast import Catalogs
 from sqlite3 import Error
 import sqlite3 
 import os
+import pandas as pd 
 
 base_directory = '/mnt/home/neisner/ceph/latte/output_LATTE/data/'
 TIC = '*306491594*'
@@ -79,18 +80,48 @@ class Database:
 		except Error as e:
 			print("INSERT failed with error", e)
 
-def query_TIC_by_spectral_type():
-	queried = Catalogs.query_criteria(catalog='Tic', objType='STAR', Tmag=[8.1, 8.15], ID=306491594)
-	print(queried.columns)
-	filtered_query = queried[(queried['disposition'] != 'SPLIT') & (queried['Jmag']-queried['Hmag'] < 0.045) & (queried['Jmag'] - queried['Kmag'] < 0.06) & (queried['wdflag'] != 1)]
-	print('ID', filtered_query['ID'])
-	print('Tmag', filtered_query['Tmag'])
-	print('Jmag', filtered_query['Jmag'])
-	print('Hmag', filtered_query['Hmag'])
-	print('Kmag', filtered_query['Kmag'])
-	print('disposition', filtered_query['disposition'])
-	print('wdflag', filtered_query['wdflag'])
-	return filtered_query['ID']
+# def query_TIC_by_spectral_type():
+# 	queried = Catalogs.query_criteria(catalog='Tic', objType='STAR', Tmag=[8.1, 8.15], ID=306491594)
+# 	print(queried.columns)
+# 	filtered_query = queried[(queried['disposition'] != 'SPLIT') & (queried['Jmag']-queried['Hmag'] < 0.045) & (queried['Jmag'] - queried['Kmag'] < 0.06) & (queried['wdflag'] != 1)]
+# 	print('ID', filtered_query['ID'])
+# 	print('Tmag', filtered_query['Tmag'])
+# 	print('Jmag', filtered_query['Jmag'])
+# 	print('Hmag', filtered_query['Hmag'])
+# 	print('Kmag', filtered_query['Kmag'])
+# 	print('disposition', filtered_query['disposition'])
+# 	print('wdflag', filtered_query['wdflag'])
+# 	return filtered_query['ID']
+
+def query_oba_catalog():
+	"""
+	reads in oba-cat.dat and returns all of the TIC IDs corresponding to all of the 
+	O spectral type stars in the catalog
+	"""	
+	with open('oba-cat.dat', 'r') as file:
+		lines = file.readlines()
+		tic_ids = []
+		j_h = []
+		j_k = []
+		for line in lines:
+			term = line.split( )
+			# if float(term[7])-float(term[9]) < 0.045 and float(term[7])-float(term[11]) < 0.06:
+			# 	tic_ids.append(int(term[0]))
+			# 	j_h.append(float(term[7])-float(term[9]))
+			# 	j_k.append(float(term[7])-float(term[11]))
+			# elif len(term) != 24:
+			# 	print('len', len(term))
+			# else:
+			# 	print('term', term)
+			# 	print('J-H', float(term[7])-float(term[9]), 'J-K', float(term[7])-float(term[11]), 'len', len(term))
+			if 'O' in term[-1] and len(term) == 24:
+				tic_ids.append(int(term[0]))
+				j_h.append(float(term[7])-float(term[9]))
+				j_k.append(float(term[7])-float(term[11]))
+		print('J-H', max(j_h), min(j_h))
+		print('J-K', max(j_k), min(j_k))
+		print('len', len(tic_ids))
+		return tic_ids
 
 def collect_fits(searchpattern):
 	"""
@@ -163,28 +194,20 @@ def light_curve_to_power_spectrum(time, flux):
 
 	
 if __name__ == '__main__':
-	# # tic_ids = query_TIC_by_spectral_type()
-	# # print(tic_ids)
-	# tic_ids = [306491594, 216662610, 464295672, 220322383, 294114621, 234009943, 100589904, 455675248, 427395049, 467065657, 195288472, 234648113, 178489528, \
-	# 30653985, 406050497, 459532732, 339567904, 41792209, 246953610, 427395058, 464839773, 442871031, 78897024, 388935529, 59215060, 151464886, 234052684, 36557200, \
-	# 95513457, 146908355, 37777866, 427451176, 80466973, 427393920, 187458882]
-	# print('len tic ids', len(tic_ids))
-	# # load the database - this is a quick way to search for all of the needed urls
-	# db = Database(DB_FILE)
-	# for tic_id in tic_ids:
-	# 	sectorids, lcpaths, tppaths = db.search(tic_id)
-	# 	print('lcpaths', lcpaths)
-	# 	for filepath in lcpaths:
-	# 		filepath=lcpaths[1]
-	# 		time, flux = read_light_curve(filepath)
-	# 		print('time', time)
-	# 		print('len time', len(time))
-	# 		print('flux', flux)
-	# 		print('len flux', len(flux))
-	# 		plot_light_curve(time, flux)
-	# 		break
-	# 	break
-
-	time, flux = stitch_light_curve(searchpattern)
-	plot_light_curve(time, flux)
-	light_curve_to_power_spectrum(time, flux)
+	tic_ids = query_oba_catalog()
+	# load the database - this is a quick way to search for all of the needed urls
+	db = Database(DB_FILE)
+	# pandas dataframe to store all the data of TIC ID, time, flux
+	df = pd.DataFrame(columns=['TIC ID', 'Time', 'Flux'])
+	for tic_id in tic_ids:
+		sectorids, lcpaths, tppaths = db.search(tic_id)
+		if lcpaths != 0:
+			for filepath in lcpaths:
+				time, flux = read_light_curve(filepath)
+				# add tic_id, time, flux to pandas dataframe
+				df = df._append({'TIC ID': tic_id, 'Time': time, 'Flux': flux}, ignore_index=True)
+	print('df', df)
+	print('len df', len(df))
+	# time, flux = stitch_light_curve(searchpattern)
+	# plot_light_curve(time, flux)
+	# light_curve_to_power_spectrum(time, flux)
