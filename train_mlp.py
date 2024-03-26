@@ -7,33 +7,40 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision import datasets, transforms
 from torchvision.transforms import ToTensor, Lambda
 import matplotlib.pyplot as plt
-# from read_tess_data import 
 
-# convert raw data of two lists into usable data for training
-def create_data(raw_data):
-    data = []
-    for i in range(len(raw_data[0])):
-        data.append([raw_data[0][i], raw_data[1][i]])
-    return data
+# create Dataset class from df, where Time and Flux are the timeseries data and Spectral Type is the label
 
-# create a dataset class for the TESS data
+def encode_labels(labels):
+    # Create a mapping from labels to integers
+    unique_labels = sorted(set(labels))  # Sort to ensure consistency
+    label_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
+    return label_to_idx
 
-
-class TESSDataset(Dataset):
-    def __init__(self, csv_file, root_dir, transform=None):
-        self.annotations = pd.read_csv(csv_file)
-        self.root_dir = root_dir
-        self.transform = transform
+class LightCurveDataset(Dataset):
+    def __init__(self, dataframe, label_to_idx):
+        self.dataframe = dataframe
+        self.label_to_idx = label_to_idx
 
     def __len__(self):
-        return len(self.annotations)
+        return len(self.dataframe)
 
-    def __getitem__(self, index):
-        img_path = os.path.join(self.root_dir, self.annotations.iloc[index, 0])
-        image = np.load(img_path)
-        y_label = torch.tensor(int(self.annotations.iloc[index, 1]))
+    def __getitem__(self, idx):
+        time = self.dataframe.iloc[idx]['Time']
+        flux = self.dataframe.iloc[idx]['Flux']
+        time_series = torch.tensor([time, flux], dtype=torch.float)
 
-        if self.transform:
-            image = self.transform(image)
+        spectral_type = self.dataframe.iloc[idx]['Spectral Type']
+        label = self.label_to_idx[spectral_type]
+        label = torch.tensor(label, dtype=torch.long)
 
-        return (image, y_label)
+        sample = {'time_series': time_series, 'label': label}
+
+        return sample
+
+if __name__ == '__main__':
+    df = pd.read_hdf('tessOstars.h5', 'df')
+    label_to_idx = encode_labels(df['Spectral Type'])
+    dataset = LightCurveDataset(df, label_to_idx)
+    # Example of utilizing __getitem__
+    sample = dataset[0]  # This uses the idx to fetch the first sample
+    print(sample)
