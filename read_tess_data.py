@@ -153,7 +153,7 @@ def read_light_curve(file_path):
 		flux_clean_norm = flux_clean/np.median(flux_clean)
 		flux_norm = flux/np.median(flux_clean)
 	# return time_clean, flux_clean_norm
-	return time_clean, flux_clean_norm
+	return np.array(time_clean), np.array(flux_clean_norm)
 
 def stitch_light_curve(searchpattern):
 	"""
