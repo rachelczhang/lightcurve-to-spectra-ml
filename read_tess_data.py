@@ -201,26 +201,20 @@ def light_curve_to_power_spectrum(time, flux):
 	plt.clf()
 	return freq, power
 
-def lightkurve_vs_astropy_power_spectrum(lightkurve_pow, astropy_pow, lightkurve_freq, astropy_freq):
+def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_freq):
 	"""
 	compares the power spectrum of lightkurve and astropy by dividing the two power spectra and looking at the residuals
 	"""
-	print('len lk', len(lightkurve_pow))
-	print('len ast', len(astropy_pow))
-	print('min lk f', min(lightkurve_freq))
-	print('min ast f', min(astropy_freq))
-	print('max lk f', max(lightkurve_freq))
-	print('max ast f', max(astropy_freq))
-	print('lightkurve freq', lightkurve_freq)
-	res = []
-	for i in range(len(lightkurve_pow)):
-		if round(lightkurve_freq[i], 3) != round(astropy_freq[i], 3):
-			print('i', i, 'lightkurve freq', lightkurve_freq[i], 'astropy freq', astropy_freq[i])
-		else:
-			res.append(lightkurve_pow[i]/astropy_pow[i])
-	plt.plot(lightkurve_freq, res, linewidth=0.5)
+	lightkurve_df['astropy_pow'] = astropy_pow 
+	print('lightkurve pow', lightkurve_df['Power'])
+	print('astropy pow', lightkurve_df['astropy_pow'])
+	lightkurve_df['div'] = lightkurve_df['astropy_pow']/lightkurve_df['Power']
+	print('div', lightkurve_df['div'])
+	plt.plot(lightkurve_df['Frequency'], lightkurve_df['div'], linewidth=0.5)
 	plt.xlabel('Frequency [1/d]')	
-	plt.ylabel('Lightkurve Power/Astropy Power')
+	plt.ylabel('Astropy Power/Lightkurve Power')
+	plt.xscale('log')
+	plt.yscale('log')
 	plt.savefig('lightkurve_vs_astropy.png')
 	plt.clf()
 	
@@ -252,4 +246,4 @@ if __name__ == '__main__':
 	freq, power = light_curve_to_power_spectrum(time, flux)
 
 	df = pd.read_hdf('lightkurvefreqpow.h5', 'df')
-	lightkurve_vs_astropy_power_spectrum(df['Power'], power, df['Frequency'], freq)
+	lightkurve_vs_astropy_power_spectrum(df, power, freq)
