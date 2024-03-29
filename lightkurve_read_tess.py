@@ -15,12 +15,6 @@ plt.savefig('lccollectiontest.png')
 plt.clf()
 
 periodogram = lc_stitched.to_periodogram()
-print('frequencies', periodogram.frequency)
-print('power', periodogram.power)
-df = pd.DataFrame(columns=['Frequency', 'Power'])
-df['Frequency'] = periodogram.frequency.value
-df['Power'] = periodogram.power.value
-df.to_hdf('lightkurvefreqpow.h5', key='df', mode='w')
 ax = periodogram.plot()
 ax.set_yscale('log')
 ax.set_xscale('log')
@@ -31,6 +25,14 @@ lc_test.normalize().plot(linewidth=0, marker='.')
 plt.savefig('lc_test.png')
 plt.clf()
 pd_test = lc_test.to_periodogram()
+df = pd.DataFrame(columns=['Frequency', 'Power'])
+df['Frequency'] = pd_test.frequency.value
+df['Power'] = pd_test.power.value
+print('len', len(df['Frequency']))
+print('min', min(df['Frequency']))
+print('max', max(df['Frequency']))
+print('Power', df['Power'])
+df.to_hdf('lightkurvefreqpow.h5', key='df', mode='w')
 ax_test = pd_test.plot()
 ax_test.set_yscale('log')
 ax_test.set_xscale('log')   

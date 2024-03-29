@@ -185,7 +185,7 @@ def light_curve_to_power_spectrum(time, flux):
 	converts the stitched light curve into a power spectrum
 	"""
 	# freq, power = LombScargle(time, flux).autopower(samples_per_peak=5, nyquist_factor=1, method='fast')#, maximum_frequency=350, normalization='psd')
-	freq = np.linspace(0.000133535911334313, 359.9990627584404, num=2695897)
+	freq = np.linspace(0.007882146071405569, 359.99337537323515, num=45672)
 	print('freq', freq)
 	ls = LombScargle(time, flux)
 	power = ls.power(freq, method='fast')
@@ -241,7 +241,7 @@ if __name__ == '__main__':
 	tic_id = 306491594
 	sectorids, lcpaths, tppaths = db.search(tic_id)
 	# time, flux = stitch_light_curve(lcpaths)
-	time, flux = read_light_curve(lcpaths[1])
+	time, flux = read_light_curve(lcpaths[0])
 	plot_light_curve(time, flux)
 	freq, power = light_curve_to_power_spectrum(time, flux)
 
