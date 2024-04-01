@@ -1,4 +1,5 @@
 import glob
+import astropy
 from astropy.io import fits
 import matplotlib.pyplot as plt 
 import numpy as np
@@ -9,6 +10,7 @@ from sqlite3 import Error
 import sqlite3 
 import os
 import pandas as pd 
+import astropy.units as u
 
 base_directory = '/mnt/home/neisner/ceph/latte/output_LATTE/data/'
 TIC = '*306491594*'
@@ -147,7 +149,8 @@ def read_light_curve(file_path):
 		data = hdul[1].data
 		time = data['TIME']
 		flux = data['PDCSAP_FLUX']
-		mask = ~np.isnan(time) & ~np.isnan(flux)
+		# mask = ~np.isnan(time) & ~np.isnan(flux)
+		mask = ~np.isnan(flux)
 		time_clean = time[mask]
 		flux_clean = flux[mask]
 		flux_clean_norm = flux_clean/np.median(flux_clean)
@@ -185,21 +188,32 @@ def light_curve_to_power_spectrum(time, flux):
 	converts the stitched light curve into a power spectrum
 	"""
 	# freq, power = LombScargle(time, flux).autopower(samples_per_peak=5, nyquist_factor=1, method='fast')#, maximum_frequency=350, normalization='psd')
-	freq = np.linspace(0.007882146071405569, 359.99337537323515, num=45672)
+	# freq = np.linspace(0.007882146071405569, 359.99337537323515, num=45672)
+	# print('freq', freq)
+	oversample_factor = 5.0
+	freq_unit = 1 / u.d
+	nyquist = 0.5 * (1.0 / (np.median(np.diff(time)))) * (1 / u.d)
+	fs = (1.0 / (time[-1] - time[0])) / oversample_factor
+	nyquist = nyquist.to(freq_unit)
+	minimum_frequency = fs
+	maximum_frequency = nyquist
+	freq = np.arange(minimum_frequency, maximum_frequency.value, fs)
 	print('freq', freq)
-	ls = LombScargle(time, flux)
-	power = ls.power(freq, method='fast')
+	ls = LombScargle(time, flux, nterms=1, normalization='psd')
+	p = ls.power(freq, method='fast')
 	print('og lens', len(time), len(flux))
-	print('lens', len(freq), len(power))
+	print('lens', len(freq), len(p))
+	# print('frequency unit', freq.unit)
+	# print('power unit', p.unit)
 	# plt.scatter(freq, power, s=1)
-	plt.plot(freq, power, linewidth=0.5)
+	plt.plot(freq, np.sqrt(p)* np.sqrt(4.0 / len(time)), linewidth=0.5)
 	plt.xscale('log')
 	plt.yscale('log')
 	plt.xlabel('Frequency [1/d]')
 	plt.ylabel('Power')
 	plt.savefig('testpowspec.png')
 	plt.clf()
-	return freq, power
+	return freq, np.sqrt(p)* np.sqrt(4.0 / len(time))
 
 def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_freq):
 	"""
@@ -242,6 +256,8 @@ if __name__ == '__main__':
 	sectorids, lcpaths, tppaths = db.search(tic_id)
 	# time, flux = stitch_light_curve(lcpaths)
 	time, flux = read_light_curve(lcpaths[0])
+	print('time', time)
+	print('flux', flux)
 	plot_light_curve(time, flux)
 	freq, power = light_curve_to_power_spectrum(time, flux)
 

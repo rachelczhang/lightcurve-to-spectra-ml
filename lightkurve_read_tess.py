@@ -24,7 +24,11 @@ lc_test = lc_collection[0]
 lc_test.normalize().plot(linewidth=0, marker='.')
 plt.savefig('lc_test.png')
 plt.clf()
-pd_test = lc_test.to_periodogram()
+pd_test = lc_test.normalize().to_periodogram()
+print('time', lc_test.time)
+print('flux', lc_test.flux)
+print('freqeuncy unit', pd_test.frequency.unit)
+print('power unit', pd_test.power.unit)
 df = pd.DataFrame(columns=['Frequency', 'Power'])
 df['Frequency'] = pd_test.frequency.value
 df['Power'] = pd_test.power.value
