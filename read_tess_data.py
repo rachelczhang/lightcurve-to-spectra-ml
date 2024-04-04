@@ -187,33 +187,35 @@ def light_curve_to_power_spectrum(time, flux):
 	"""
 	converts the stitched light curve into a power spectrum
 	"""
-	# freq, power = LombScargle(time, flux).autopower(samples_per_peak=5, nyquist_factor=1, method='fast')#, maximum_frequency=350, normalization='psd')
-	# freq = np.linspace(0.007882146071405569, 359.99337537323515, num=45672)
+	# # reproducing lightkurve's automatic frequency range
+	# oversample_factor = 5.0
+	# freq_unit = 1 / u.d
+	# nyquist = 0.5 * (1.0 / (np.median(np.diff(time)))) * (1 / u.d)
+	# fs = (1.0 / (time[-1] - time[0])) / oversample_factor
+	# nyquist = nyquist.to(freq_unit)
+	# minimum_frequency = fs
+	# maximum_frequency = nyquist
+	# freq = np.arange(minimum_frequency, maximum_frequency.value, fs)
+	# print('min freq', minimum_frequency)
+	# print('max freq', maximum_frequency.value)
+	# print('step', fs)
 	# print('freq', freq)
-	oversample_factor = 5.0
-	freq_unit = 1 / u.d
-	nyquist = 0.5 * (1.0 / (np.median(np.diff(time)))) * (1 / u.d)
-	fs = (1.0 / (time[-1] - time[0])) / oversample_factor
-	nyquist = nyquist.to(freq_unit)
-	minimum_frequency = fs
-	maximum_frequency = nyquist
-	freq = np.arange(minimum_frequency, maximum_frequency.value, fs)
-	print('freq', freq)
+
+	# create consistent frequency range for all power spectra for ML purposes
+	freq = np.arange(0.04, 250, 0.04)
 	ls = LombScargle(time, flux, nterms=1, normalization='psd')
 	p = ls.power(freq, method='fast')
+	amplitude_power = np.sqrt(p) * np.sqrt(4.0 / len(time))
 	print('og lens', len(time), len(flux))
 	print('lens', len(freq), len(p))
-	# print('frequency unit', freq.unit)
-	# print('power unit', p.unit)
-	# plt.scatter(freq, power, s=1)
-	plt.plot(freq, np.sqrt(p)* np.sqrt(4.0 / len(time)), linewidth=0.5)
+	plt.plot(freq, amplitude_power, linewidth=0.5)
 	plt.xscale('log')
 	plt.yscale('log')
 	plt.xlabel('Frequency [1/d]')
 	plt.ylabel('Power')
 	plt.savefig('testpowspec.png')
 	plt.clf()
-	return freq, np.sqrt(p)* np.sqrt(4.0 / len(time))
+	return freq, amplitude_power
 
 def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_freq):
 	"""
@@ -233,33 +235,35 @@ def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_fre
 	plt.clf()
 	
 if __name__ == '__main__':
-	# tic_ids, spectral_type = query_oba_catalog()
+	tic_ids, spectral_type = query_oba_catalog()
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
-	# # pandas dataframe to store all the data of TIC ID, time, flux
+	# pandas dataframe to store all the data of TIC ID, time, flux
 	# df = pd.DataFrame(columns=['TIC ID', 'Time', 'Flux'])
-	# ind = 0
-	# for tic_id in tic_ids:
-	# 	sp_type = spectral_type[ind]
-	# 	sectorids, lcpaths, tppaths = db.search(tic_id)
-	# 	if lcpaths != 0:
-	# 		for filepath in lcpaths:
-	# 			time, flux = read_light_curve(filepath)
-	# 			df = df._append({'TIC ID': tic_id, 'Time': time, 'Flux': flux, 'Spectral Type': sp_type}, ignore_index=True)
-	# 	ind += 1
-	# print('df', df)
-	# print('len df', len(df))
-	# df.to_hdf('tessOstars.h5', key='df', mode='w')
+	df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
+	ind = 0
+	for tic_id in tic_ids:
+		sp_type = spectral_type[ind]
+		sectorids, lcpaths, tppaths = db.search(tic_id)
+		if lcpaths != 0:
+			for filepath in lcpaths:
+				time, flux = read_light_curve(filepath)
+				freq, power = light_curve_to_power_spectrum(time, flux)
+				df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
+		ind += 1
+	print('df', df)
+	print('len df', len(df))
+	df.to_hdf('tessOstars.h5', key='df', mode='w')
 
-	# stitching light curves
-	tic_id = 306491594
-	sectorids, lcpaths, tppaths = db.search(tic_id)
-	# time, flux = stitch_light_curve(lcpaths)
-	time, flux = read_light_curve(lcpaths[0])
-	print('time', time)
-	print('flux', flux)
-	plot_light_curve(time, flux)
-	freq, power = light_curve_to_power_spectrum(time, flux)
+	# # stitching light curves
+	# tic_id = 306491594
+	# sectorids, lcpaths, tppaths = db.search(tic_id)
+	# # time, flux = stitch_light_curve(lcpaths)
+	# time, flux = read_light_curve(lcpaths[0])
+	# print('time', time)
+	# print('flux', flux)
+	# plot_light_curve(time, flux)
+	# freq, power = light_curve_to_power_spectrum(time, flux)
 
-	df = pd.read_hdf('lightkurvefreqpow.h5', 'df')
-	lightkurve_vs_astropy_power_spectrum(df, power, freq)
+	# df = pd.read_hdf('lightkurvefreqpow.h5', 'df')
+	# lightkurve_vs_astropy_power_spectrum(df, power, freq)

@@ -9,15 +9,15 @@ from torchvision.transforms import ToTensor, Lambda
 import matplotlib.pyplot as plt
 from sklearn.model_selection import train_test_split
 
-# create Dataset class from df, where Time and Flux are the timeseries data and Spectral Type is the label
+# create Dataset class from df, where Frequency and Power are the data and Spectral Type is the label
 
 def encode_labels(labels):
-    # Create a mapping from labels to integers
-    unique_labels = sorted(set(labels))  # Sort to ensure consistency
+    # create a mapping from labels to integers
+    unique_labels = sorted(set(labels))  # sort to ensure consistency
     label_to_idx = {label: idx for idx, label in enumerate(unique_labels)}
     return label_to_idx
 
-class LightCurveDataset(Dataset):
+class PeriodogramDataset(Dataset):
     def __init__(self, dataframe, label_to_idx):
         self.dataframe = dataframe
         self.label_to_idx = label_to_idx
@@ -26,17 +26,20 @@ class LightCurveDataset(Dataset):
         return len(self.dataframe)
 
     def __getitem__(self, idx):
-        time = self.dataframe.iloc[idx]['Time']
-        flux = self.dataframe.iloc[idx]['Flux']
-        time_flux_stack = np.stack((time, flux), axis=0)  # This creates a single numpy array with shape (2, N)
-        time_flux = torch.tensor(time_flux_stack, dtype=torch.float)
-        # time_flux = torch.tensor([time, flux], dtype=torch.float)
+        print('idx', idx)
+        freq = self.dataframe.iloc[idx]['Frequency']
+        print('freq', freq)
+        power = self.dataframe.iloc[idx]['Power']
+        print('power', power)
+        freq_pow_stack = np.stack((freq, power), axis=0)  # single numpy array with shape (2, N)
+        freq_pow = torch.tensor(freq_pow_stack, dtype=torch.float)
+        # freq_pow = torch.tensor([time, flux], dtype=torch.float)
 
         spectral_type = self.dataframe.iloc[idx]['Spectral Type']
         label = self.label_to_idx[spectral_type]
         label = torch.tensor(label, dtype=torch.long)
 
-        sample = {'time_flux': time_flux, 'spectral_type_label': label}
+        sample = {'freq_pow': freq_pow, 'spectral_type_label': label}
 
         return sample
     
@@ -62,10 +65,13 @@ if __name__ == '__main__':
     print('train df', train_df)
     print('test df', test_df)
     train_label_to_idx = encode_labels(train_df['Spectral Type'])
-    print('train label', train_label_to_idx)
     test_label_to_idx = encode_labels(test_df['Spectral Type'])
-    train_dataset = LightCurveDataset(train_df, train_label_to_idx)
-    test_dataset = LightCurveDataset(test_df, test_label_to_idx)
+    print('train label to idx', train_label_to_idx)
+    print('test label to idx', test_label_to_idx)
+    train_dataset = PeriodogramDataset(train_df, train_label_to_idx)
+    test_dataset = PeriodogramDataset(test_df, test_label_to_idx)
+    print('train dataset', train_dataset)
+    print('test dataset', test_dataset)
 
     # set hyperparameters: adjustable parameters to control model optimization process
     # number of epochs: # times to iterate over datatset
@@ -74,10 +80,8 @@ if __name__ == '__main__':
     learning_rate = 0.001
     batch_size = 64
     epochs = 5
-    input_size = len(train_dataset[0]['time_flux'].flatten())  # Adjust based on your data
+    input_size = len(train_dataset[0]['freq_pow'].flatten())  # Adjust based on your data
     output_size = len(train_label_to_idx)
-    print('input size', input_size)
-    print('output size', output_size)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     model = MLP(input_size, output_size)
@@ -86,24 +90,23 @@ if __name__ == '__main__':
     # optimization: process of adjusting model parameters to reduce model error in each training step
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
 
-    # # training
-    # for epoch in range(epochs):
-    #     for i, batch in enumerate(train_loader):
-    #         # flatten data to fit the MLP input
-    #         print('og', batch['time_flux'])
-    #         inputs = batch['time_flux'].view(batch_size, -1)
-    #         print('inputs', inputs)
-    #         labels = batch['spectral_type_label']
-    #         print('labels', labels)
+    # training
+    for epoch in range(epochs):
+        for i, batch in enumerate(train_loader):
+            # dynamically get current batch size
+            current_batch_size = batch['freq_pow'].shape[0]
+            # flatten data to fit the MLP input
+            inputs = batch['freq_pow'].view(current_batch_size, -1)
+            labels = batch['spectral_type_label']
+            print('labels', labels)
             
-    #         # Forward pass
-    #         outputs = model(inputs)
-    #         loss = loss_fn(outputs, labels)
+            # forward pass: compute model predictions for batch's inputs
+            outputs = model(inputs)
+            loss = loss_fn(outputs, labels)
             
-    #         # Backward and optimize
-    #         optimizer.zero_grad()
-    #         loss.backward()
-    #         optimizer.step()
-    #         break        
-    #     print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}')
-    #     break 
+            # backward pass and optimize: compute gradient of loss with respect to model parameters
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()     
+            print(f'Loss: {loss.item():.4f}')   
+        print(f'Epoch [{epoch+1}/{epochs}], Loss: {loss.item():.4f}')
