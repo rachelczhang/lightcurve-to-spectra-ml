@@ -100,7 +100,7 @@ def query_oba_catalog():
 	reads in oba-cat.dat and returns all of the TIC IDs corresponding to all of the 
 	O spectral type stars in the catalog
 	"""	
-	with open('../oba-cat.dat', 'r') as file:
+	with open('/mnt/sdceph/users/rzhang/oba-cat.dat', 'r') as file:
 		lines = file.readlines()
 		tic_ids = []
 		j_h = []
@@ -117,11 +117,12 @@ def query_oba_catalog():
 			# else:
 			# 	print('term', term)
 			# 	print('J-H', float(term[7])-float(term[9]), 'J-K', float(term[7])-float(term[11]), 'len', len(term))
-			if term[-1][0] == 'O' and len(term) == 24:
+			if (term[-1][0] == 'O' or term[-1][0] == 'B' or term[-1][0] == 'A') and len(term) == 24:
+			# if term[-1][0] == 'B' and len(term) == 24:
 				tic_ids.append(int(term[0]))
 				j_h.append(float(term[7])-float(term[9]))
 				j_k.append(float(term[7])-float(term[11]))
-				spectral_type.append(term[-1])
+				spectral_type.append(term[-1][0])
 		print('J-H', max(j_h), min(j_h))
 		print('J-K', max(j_k), min(j_k))
 		print('len', len(tic_ids))
@@ -145,18 +146,21 @@ def read_light_curve(file_path):
 	returns light curve output: time, photon count 
 	"""
 	with fits.open(file_path) as hdul:
-		hdul.info()
-		data = hdul[1].data
-		time = data['TIME']
-		flux = data['PDCSAP_FLUX']
-		# mask = ~np.isnan(time) & ~np.isnan(flux)
-		mask = ~np.isnan(flux)
-		time_clean = time[mask]
-		flux_clean = flux[mask]
-		flux_clean_norm = flux_clean/np.median(flux_clean)
-		flux_norm = flux/np.median(flux_clean)
-	# return time_clean, flux_clean_norm
-	return np.array(time_clean), np.array(flux_clean_norm)
+		try:
+			hdul.info()
+			data = hdul[1].data
+			time = data['TIME']
+			flux = data['PDCSAP_FLUX']
+			# mask = ~np.isnan(time) & ~np.isnan(flux)
+			mask = ~np.isnan(flux)
+			time_clean = time[mask]
+			flux_clean = flux[mask]
+			flux_clean_norm = flux_clean/np.median(flux_clean)
+			flux_norm = flux/np.median(flux_clean)
+			return np.array(time_clean), np.array(flux_clean_norm)
+		except:
+			print('File corrupted: ', file_path)
+			return None
 
 def stitch_light_curve(lc_paths):
 	"""
@@ -236,6 +240,7 @@ def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_fre
 	
 if __name__ == '__main__':
 	tic_ids, spectral_type = query_oba_catalog()
+	print('len tic ids', len(tic_ids))
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
 	# pandas dataframe to store all the data of TIC ID, time, flux
@@ -247,9 +252,11 @@ if __name__ == '__main__':
 		sectorids, lcpaths, tppaths = db.search(tic_id)
 		if lcpaths != 0:
 			for filepath in lcpaths:
-				time, flux = read_light_curve(filepath)
-				freq, power = light_curve_to_power_spectrum(time, flux)
-				df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
+				print('looking for filepath: ', filepath)
+				if read_light_curve(filepath) is not None:
+					time, flux = read_light_curve(filepath)
+					freq, power = light_curve_to_power_spectrum(time, flux)
+					df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
 		ind += 1
 	print('df', df)
 	print('len df', len(df))

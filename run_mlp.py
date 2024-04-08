@@ -11,6 +11,7 @@ def load_data(filename):
     """
     data = pd.read_hdf(filename, 'df')
     power = data['Power']
+    print('data', data)
     labels = data['Spectral Type']
     return power, labels
 
@@ -31,6 +32,22 @@ def encode_labels(labels):
     labels_encoded = labels.map(label_to_int).values
     return torch.tensor(labels_encoded, dtype=torch.long), label_to_int
 
+def calculate_class_weights(labels):
+    """
+    Calculate weights for each class based on frequencies.
+    
+    Parameters:
+    labels: torch.Tensor - Encoded labels as a tensor of long integers.
+    
+    Returns:
+    torch.Tensor: Weights for each class.
+    """
+    class_counts = labels.bincount()
+    total_samples = len(labels)
+    num_classes = len(class_counts)
+    weights = total_samples / (class_counts * num_classes)
+    return weights
+
 def preprocess_data(power, labels):
     """
     Convert power data to tensor usable for PyTorch and encode labels, then make them DataLoaders 
@@ -49,6 +66,8 @@ def preprocess_data(power, labels):
     
     # encode string labels to integers
     labels_tensor, label_to_int = encode_labels(labels)
+    class_weights = calculate_class_weights(labels_tensor)
+
 
     # combined Dataset
     dataset = TensorDataset(power_tensor, labels_tensor)
@@ -59,23 +78,23 @@ def preprocess_data(power, labels):
 
     torch.manual_seed(0)
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
-
     # create DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
-    return train_loader, test_loader, label_to_int
+    return train_loader, test_loader, label_to_int, class_weights
 
 # define the MLP model
 class MLP(nn.Module):
     def __init__(self, input_size, output_size):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(input_size, 300),
+            nn.Linear(input_size, 512),
             nn.ReLU(),
-            nn.Linear(300, 128),
+            nn.Linear(512, 128),
             nn.ReLU(),
             nn.Linear(128, output_size),
+            # nn.Softmax()
         )
     def forward(self, x):
         logits = self.linear_relu_stack(x)
@@ -145,8 +164,8 @@ if __name__ == '__main__':
     learning_rate = 1e-3
     batch_size = 64
     epochs = 5
-    loss_fn = nn.CrossEntropyLoss()
-    train_dataloader, test_dataloader, label_to_int = preprocess_data(power, labels)
+    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, labels)
+    loss_fn = nn.CrossEntropyLoss(weight=class_weights)
     model = MLP(input_size=len(power.iloc[0]), output_size=len(label_to_int))
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
     for t in range(epochs):
