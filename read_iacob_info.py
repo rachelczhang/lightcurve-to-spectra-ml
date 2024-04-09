@@ -14,27 +14,15 @@ def get_tic_id(star_name):
     Given the name used in this data, see if there is an alternative name for it in the TIC catalog
     by quering the SIMBAD astronomical database
     """
-    search_url = "http://simbad.u-strasbg.fr/simbad/sim-fbasic"
-    
-    # Send a GET request to SIMBAD with the search parameters
+    search_url = f"http://simbad.u-strasbg.fr/simbad/sim-basic?Ident={star_name}&submit=SIMBAD+search"
     response = requests.get(search_url)
-    
-    # Check if the request was successful
     if response.status_code == 200:
-        print('response.text', response.text)
-        # Use BeautifulSoup to parse the HTML content
         soup = BeautifulSoup(response.text, 'html.parser')
-        print('soup', soup)
-        # Search for the TIC ID in the parsed HTML
-        # Note: You may need to adjust the search parameters depending on the actual HTML structure of the page
-        tic_id_element = soup.find(string='TIC')
-        print('tic_id_element', tic_id_element)
-        if tic_id_element:
-            # If the TIC ID is found, extract and return it
-            # This part may need customization based on the page's structure around the TIC ID
-            tic_id = tic_id_element.find_next().text
-            print('tic id', tic_id)
-            return tic_id
+        text = soup.get_text()
+        element = text.find('TIC')
+        if element:
+            tic_id = text[element+4:element+13]
+            return tic_id 
         else:
             print(f"TIC ID not found for {star_name}")
             return None
@@ -42,12 +30,13 @@ def get_tic_id(star_name):
         print(f"Failed to retrieve data for {star_name}")
         return None
 
-star_name = "HD 74920"
-tic_id = get_tic_id(star_name)
-if tic_id:
-    print(f"The TIC ID for {star_name} is: {tic_id}")
-else:
-    print("Could not find a TIC ID.")
+# star_name = "HD74920"
+# tic_id = get_tic_id(star_name)
+# if tic_id:
+#     print(f"The TIC ID for {star_name} is: {tic_id}")
+# else:
+#     print("Could not find a TIC ID.")
 
-   
-    
+df_complete['TIC_ID'] = df_complete['ID'].apply(get_tic_id)
+df_complete['TIC_ID'] = df_complete['TIC_ID'].str.replace('\n', '')
+print(df_complete.filter(['ID', 'TIC_ID']))
