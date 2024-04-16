@@ -212,11 +212,15 @@ def light_curve_to_power_spectrum(time, flux):
 	amplitude_power = np.sqrt(p) * np.sqrt(4.0 / len(time))
 	print('og lens', len(time), len(flux))
 	print('lens', len(freq), len(p))
-	plt.plot(freq, amplitude_power, linewidth=0.5)
-	plt.xscale('log')
+	return freq, amplitude_power
+
+def plot_periodogram(freq, amplitude_power):
+	plt.scatter(freq, amplitude_power, s=1)
+	# plt.plot(freq, amplitude_power, linewidth=0.5)
+	# plt.xscale('log')
 	plt.yscale('log')
 	plt.xlabel('Frequency [1/d]')
-	plt.ylabel('Power')
+	plt.ylabel('Amplitude Power')
 	plt.savefig('testpowspec.png')
 	plt.clf()
 	return freq, amplitude_power
@@ -237,15 +241,47 @@ def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_fre
 	plt.yscale('log')
 	plt.savefig('lightkurve_vs_astropy.png')
 	plt.clf()
-	
+
+def get_average_periodogram(power):
+	"""
+	takes the list of lists of powers of a particular spectral type and finds the average power and returns the 
+	corresponding freq and power
+	"""
+	df = pd.DataFrame(power)
+	avg_power = df.mean()
+	return avg_power
+
+def plot_many_periodograms(freq, power_list):
+	"""
+	take a list of frequencies and a list of lists of powers and plots them all on the same graph
+	"""
+	count = 0
+	for power_spectrum in power_list:
+		if count == 0:
+			plt.plot(freq, power_spectrum, linewidth=0.5, label='O Star', color='blue')
+		elif count == 1:
+			plt.plot(freq, power_spectrum, linewidth=0.5, label='B Star', color='red')
+		elif count == 2:
+			plt.plot(freq, power_spectrum, linewidth=0.5, label='A Star', color='orange')
+		count += 1
+	plt.xlabel('Frequency [1/d]')
+	plt.ylabel('Amplitude Power')
+	plt.xscale('log')
+	plt.yscale('log')
+	plt.legend()
+	plt.savefig('avg_OBA_periodograms.png')
+	plt.clf()
+
 if __name__ == '__main__':
 	tic_ids, spectral_type = query_oba_catalog()
 	print('len tic ids', len(tic_ids))
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
-	# pandas dataframe to store all the data of TIC ID, time, flux
-	# df = pd.DataFrame(columns=['TIC ID', 'Time', 'Flux'])
-	df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
+	# pandas dataframe to store all the data of TIC ID, frequency, power
+	# df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
+	O_stars = []
+	B_stars = []
+	A_stars = []
 	ind = 0
 	for tic_id in tic_ids:
 		sp_type = spectral_type[ind]
@@ -256,11 +292,27 @@ if __name__ == '__main__':
 				if read_light_curve(filepath) is not None:
 					time, flux = read_light_curve(filepath)
 					freq, power = light_curve_to_power_spectrum(time, flux)
-					df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
+					# df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
+					if sp_type == 'O':
+						O_stars.append(power)
+					elif sp_type == 'B':
+						B_stars.append(power)
+					elif sp_type == 'A':
+						A_stars.append(power)
 		ind += 1
-	print('df', df)
-	print('len df', len(df))
-	df.to_hdf('tessOstars.h5', key='df', mode='w')
+	# print('df', df)
+	# print('len df', len(df))
+	# df.to_hdf('tessOBAstars.h5', key='df', mode='w')
+	print('O stars', O_stars)
+	print('len O stars', len(O_stars))
+	print('B stars', B_stars)
+	print('len B stars', len(B_stars))
+	print('A stars', A_stars)
+	print('len A stars', len(A_stars))
+	avg_O_power = get_average_periodogram(O_stars)
+	avg_B_power = get_average_periodogram(B_stars)
+	avg_A_power = get_average_periodogram(A_stars)
+	plot_many_periodograms(freq, [avg_O_power, avg_B_power, avg_A_power])
 
 	# # stitching light curves
 	# tic_id = 306491594
@@ -271,6 +323,10 @@ if __name__ == '__main__':
 	# print('flux', flux)
 	# plot_light_curve(time, flux)
 	# freq, power = light_curve_to_power_spectrum(time, flux)
+	# print('freq', freq)
+	# print('power', power)
+	# plot_periodogram(freq, power)
+
 
 	# df = pd.read_hdf('lightkurvefreqpow.h5', 'df')
 	# lightkurve_vs_astropy_power_spectrum(df, power, freq)
