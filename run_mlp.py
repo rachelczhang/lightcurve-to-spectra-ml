@@ -4,7 +4,6 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd 
 import numpy as np
-from scipy.signal import convolve
 import matplotlib.pyplot as plt
 
 def load_data(filename):
@@ -13,11 +12,12 @@ def load_data(filename):
     """
     data = pd.read_hdf(filename, 'df')
     power = data['Power']
+    logpower = power.apply(lambda x: np.log10(x).tolist())
     print('data', data)
+    print('logpower', logpower)
     freq = data['Frequency']
     labels = data['Spectral Type']
-    return power, labels, freq
-
+    return power, logpower, labels, freq
 
 def encode_labels(labels):
     """
@@ -40,15 +40,17 @@ def calculate_class_weights(labels: torch.Tensor) -> torch.Tensor:
     Calculate weights for each class based on frequencies.
     
     Parameters:
-    labels: torch.Tensor - Encoded labels as a tensor of long integers.
+    labels: torch.Tensor - encoded labels as a tensor of long integers.
     
     Returns:
-    torch.Tensor: Weights for each class.
+    weights: torch.Tensor - weights for each class.
     """
     class_counts = labels.bincount()
+    print('class counts', class_counts)
     total_samples = len(labels)
+    print('total samples', total_samples)
     num_classes = len(class_counts)
-    weights = total_samples / (class_counts * num_classes)
+    weights = total_samples/(class_counts * num_classes)
     return weights
 
 def moving_average(data, window_size):
@@ -56,17 +58,18 @@ def moving_average(data, window_size):
     Apply moving average smoothing to the data.
     
     Parameters:
-    data: data to be smoothed: list of lists of floats
-    window_size: int - Size of the moving average window.
+    data: DataFrame series of lists of floats to be smoothed
+    window_size: int; size of the moving average window.
     
     Returns:
-    np.array: Smoothed data.
+    smoothed_data: list of lists of the smoothed data
     """
     window = np.ones(window_size) / window_size
     smoothed_data = []
     for sublist in data:
         smoothed_sublist = np.convolve(sublist, window, mode='same')
-        smoothed_data.append(list(smoothed_sublist))
+        smoothed_array = np.array(smoothed_sublist)
+        smoothed_data.append(np.log10(smoothed_array).tolist())
     return smoothed_data
 
 def plot_spectra(og_power, conv_power, freq):
@@ -78,31 +81,33 @@ def plot_spectra(og_power, conv_power, freq):
     plt.plot(freq[0], conv_power[0], label='Moving Average', alpha=0.8)
     plt.legend()
     plt.xscale('log')
-    plt.yscale('log')
+    # plt.yscale('log')
     plt.xlabel('Frequency [1/d]')
     plt.ylabel('Amplitude Power')
     plt.savefig('spectratest.png')
     plt.clf()
 
-def preprocess_data(power, labels, freq):
+def preprocess_data(power, logpower, labels, freq):
     """
     Convert power data to tensor usable for PyTorch and encode labels, then make them DataLoaders 
     to be directly used in training and testing
 
     Parameters:
     power: DataFrame series of lists of floats 
+    logpower: DataFrame series of list of floats that represent the log power
     labels: DataFrame series of strings 
+    freq: DataFrame series of lists of floats
 
     Returns: 
-    torch.Tensor: Tensor of power data
+    train_loader, test_loader: 2 DataLoader classes for training and test data
+    label_to_int: dict for mapping from original labels to encoded integers
+    class_weights: torch.Tensor for the weights for each class.
     """
-    # convert DataFrame series of lists of floats to tensor
-    og_power_array = np.array(power.tolist()) 
-    print('og len', len(og_power_array))
-    power_array = moving_average(og_power_array, 10)
-    print('ma len', len(power_array))
-    # plot_spectra(og_power_array, power_array, freq)
-    power_tensor = torch.tensor(power_array, dtype=torch.float32)
+    smoothed_power = moving_average(power, 10)
+    # plot example spectra of original power vs smoothed power
+    plot_spectra(logpower, smoothed_power, freq)
+    # convert list of lists of floats to tensor
+    power_tensor = torch.tensor(smoothed_power, dtype=torch.float32)
     
     # encode string labels to integers
     labels_tensor, label_to_int = encode_labels(labels)
@@ -130,7 +135,9 @@ class MLP(nn.Module):
         self.linear_relu_stack = nn.Sequential(
             nn.Linear(input_size, 512),
             nn.ReLU(),
-            nn.Linear(512, 128),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
             nn.ReLU(),
             nn.Linear(128, output_size),
             # nn.Softmax()
@@ -203,11 +210,11 @@ def test_loop(dataloader, model, loss_fn):
     print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
 
 if __name__ == '__main__':
-    power, labels, freq = load_data('tessOBAstars.h5')
-    learning_rate = 1e-1
+    power, logpower, labels, freq = load_data('tessOBAstars.h5')
+    learning_rate = 1e-3
     batch_size = 64
-    epochs = 20
-    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, labels, freq)
+    epochs = 200
+    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, logpower, labels, freq)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()#, reduction='sum')
     model = MLP(input_size=len(power.iloc[0]), output_size=len(label_to_int)).cuda()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
