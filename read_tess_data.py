@@ -242,35 +242,6 @@ def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_fre
 	plt.savefig('lightkurve_vs_astropy.png')
 	plt.clf()
 
-def get_average_periodogram(power):
-	"""
-	takes the list of lists of powers of a particular spectral type and finds the average power and returns the 
-	corresponding freq and power
-	"""
-	df = pd.DataFrame(power)
-	avg_power = df.mean()
-	return avg_power
-
-def plot_many_periodograms(freq, power_list):
-	"""
-	take a list of frequencies and a list of lists of powers and plots them all on the same graph
-	"""
-	count = 0
-	for power_spectrum in power_list:
-		if count == 0:
-			plt.plot(freq, power_spectrum, linewidth=0.5, label='O Star', color='blue')
-		elif count == 1:
-			plt.plot(freq, power_spectrum, linewidth=0.5, label='B Star', color='red')
-		elif count == 2:
-			plt.plot(freq, power_spectrum, linewidth=0.5, label='A Star', color='orange')
-		count += 1
-	plt.xlabel('Frequency [1/d]')
-	plt.ylabel('Amplitude Power')
-	plt.xscale('log')
-	plt.yscale('log')
-	plt.legend()
-	plt.savefig('avg_OBA_periodograms.png')
-	plt.clf()
 
 if __name__ == '__main__':
 	tic_ids, spectral_type = query_oba_catalog()
@@ -278,7 +249,7 @@ if __name__ == '__main__':
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
 	# pandas dataframe to store all the data of TIC ID, frequency, power
-	# df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
+	df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
 	O_stars = []
 	B_stars = []
 	A_stars = []
@@ -300,19 +271,14 @@ if __name__ == '__main__':
 					elif sp_type == 'A':
 						A_stars.append(power)
 		ind += 1
-	# print('df', df)
-	# print('len df', len(df))
-	# df.to_hdf('tessOBAstars.h5', key='df', mode='w')
-	print('O stars', O_stars)
-	print('len O stars', len(O_stars))
-	print('B stars', B_stars)
-	print('len B stars', len(B_stars))
-	print('A stars', A_stars)
-	print('len A stars', len(A_stars))
-	avg_O_power = get_average_periodogram(O_stars)
-	avg_B_power = get_average_periodogram(B_stars)
-	avg_A_power = get_average_periodogram(A_stars)
-	plot_many_periodograms(freq, [avg_O_power, avg_B_power, avg_A_power])
+	df.to_hdf('tessOBAstars.h5', key='df', mode='w')
+
+	star_df = pd.DataFrame(columns=['O', 'B', 'A', 'freq'])
+	star_df['O'] = [O_stars]
+	star_df['B'] = [B_stars]
+	star_df['A'] = [A_stars]
+	star_df['freq'] = [freq]
+	star_df.to_hdf('OBApowers.h5', key='df', mode='w')
 
 	# # stitching light curves
 	# tic_id = 306491594
