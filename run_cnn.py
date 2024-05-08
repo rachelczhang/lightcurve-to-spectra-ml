@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 from run_mlp import load_data, preprocess_data
 import wandb
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+import numpy as np 
 
 class CNN1D(nn.Module):
     def __init__(self, num_channels, output_size):
@@ -45,25 +47,26 @@ def train_loop(dataloader, model, loss_fn, optimizer, epoch):
         optimizer.zero_grad()
         total_loss += loss.item()
         wandb.log({"batch_loss": loss.item()})
-        if batch % 100 == 0:
-            loss, current = loss.item(), batch * len(X) + len(X)
-            print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
     avg_loss = total_loss / len(dataloader)
     wandb.log({"train_loss": avg_loss, "epoch": epoch})
     print(f"Train loss: {avg_loss:>7f}")
 
-def test_loop(dataloader, model, loss_fn, epoch):
+def compute_confusion_matrix(true, pred, num_classes):
+    conf_matrix = np.zeros((num_classes, num_classes), dtype=int)
+    for t, p in zip(true, pred):
+        conf_matrix[t, p] += 1
+    return conf_matrix
+
+def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
     """
     Evaluate the model's performance on the test dataset
     """
     # put model in evaluation mode
     model.eval()
-    # number of samples in dataset
-    size = len(dataloader.dataset)
-    # number of batches in dataloader
-    num_batches = len(dataloader)
     # iniitalizes variables to accumulate total loss and number of correctly predicted samples
     test_loss, correct = 0, 0
+    all_labels = []
+    all_predictions = []
     # torch.no_grad() ensures that no gradients are computed during test mode
     with torch.no_grad():
         # iterate over each batch in dataloader
@@ -74,21 +77,28 @@ def test_loop(dataloader, model, loss_fn, epoch):
             pred = model(X)
             test_loss += loss_fn(pred, y).item()
             correct += (pred.argmax(1) == y).type(torch.float).sum().item()
-    # normalizes test_loss by number of batches and calcules accuracy as percentage of correct predictions
-    test_loss /= num_batches
-    correct /= size
-    wandb.log({"test_loss": test_loss, "test_accuracy": 100*correct, "epoch": epoch})
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
-    return test_loss
+            all_labels.extend(y.cpu().numpy())
+            all_predictions.extend(pred.argmax(1).cpu().numpy())
+    # calculate confusion matrix
+    conf_matrix = compute_confusion_matrix(all_labels, all_predictions, num_classes) 
+    # calculates average test loss per batch and calcules accuracy as percentage of correct predictions
+    avg_loss = test_loss / len(dataloader)
+    accuracy = 100 * correct / len(dataloader.dataset) # len(dataloader.dataset) = number of samples in dataset
+    wandb.log({"test_loss": avg_loss, "test_accuracy": accuracy, "epoch": epoch, "predictions_histogram": wandb.Histogram(all_predictions)})
+    print(f"Test Error: \n Accuracy: {(accuracy):>0.1f}%, Avg loss: {avg_loss:>8f} \n")
+    counts, _ = np.histogram(all_predictions, bins=np.arange(-0.5, len(label_to_int) + 0.5))
+    print(f"Counts per class: {counts}")
+    print(f"Confusion matrix: \n{conf_matrix}")
+    return avg_loss
 
 if __name__ == '__main__':
     wandb.init(project="lightcurve-to-spectra-ml", entity="rczhang")
     best_loss = float('inf')
-    patience = 10 # number of epochs to wait for improvement before stopping
+    patience = 500 # number of epochs to wait for improvement before stopping
     patience_counter = 0
 
     power, logpower, labels, freq = load_data('tessOBAstars.h5')
-    learning_rate = 5e-4
+    learning_rate = 1e-3
     batch_size = 64
     epochs = 500
     num_channels = 32  # number of channels in first conv layer
@@ -97,14 +107,17 @@ if __name__ == '__main__':
     model = CNN1D(num_channels, len(label_to_int)).cuda()
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
 
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, loss_fn, optimizer, t)
         current_loss = test_loop(test_dataloader, model, loss_fn, t)
+        scheduler.step(current_loss)
         if current_loss < best_loss:
             best_loss = current_loss
             patience_counter = 0
+            torch.save(model.state_dict(), "best_cnn.pth")
         else:
             patience_counter += 1
         if patience_counter >= patience:

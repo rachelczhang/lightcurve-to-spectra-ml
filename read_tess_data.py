@@ -246,6 +246,25 @@ def lightkurve_vs_astropy_power_spectrum(lightkurve_df, astropy_pow, astropy_fre
 if __name__ == '__main__':
 	tic_ids, spectral_type = query_oba_catalog()
 	print('len tic ids', len(tic_ids))
+
+	## add O star IACOB data ##
+	tic_ids_set = set(tic_ids)
+	df_iacob1 = pd.read_csv('/mnt/sdceph/users/rzhang/iacob1.csv')
+	df_iacob2 = pd.read_csv('/mnt/sdceph/users/rzhang/iacob2.csv')
+	new_ticids = []
+	new_spec = []
+	for ticid in df_iacob1['TIC_ID']:
+		if ticid not in tic_ids_set:
+			new_ticids.append(ticid)
+			new_spec.append('O')
+	for ticid in df_iacob2['TIC_ID']:
+		if ticid not in tic_ids_set:
+			new_ticids.append(ticid)
+			new_spec.append('O')
+	tic_ids.extend(new_ticids)
+	print('len tic ids with iacob', len(tic_ids))
+	spectral_type.extend(new_spec)
+	
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
 	# pandas dataframe to store all the data of TIC ID, frequency, power
@@ -263,7 +282,7 @@ if __name__ == '__main__':
 				if read_light_curve(filepath) is not None:
 					time, flux = read_light_curve(filepath)
 					freq, power = light_curve_to_power_spectrum(time, flux)
-					# df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
+					df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
 					if sp_type == 'O':
 						O_stars.append(power)
 					elif sp_type == 'B':
@@ -272,6 +291,10 @@ if __name__ == '__main__':
 						A_stars.append(power)
 		ind += 1
 	df.to_hdf('tessOBAstars.h5', key='df', mode='w')
+
+	print('num O stars', len(O_stars))
+	print('num B stars', len(B_stars))
+	print('num A stars', len(A_stars))
 
 	star_df = pd.DataFrame(columns=['O', 'B', 'A', 'freq'])
 	star_df['O'] = [O_stars]

@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import pandas as pd 
 import numpy as np
@@ -87,7 +86,7 @@ def plot_spectra(og_power, conv_power, freq):
     plt.savefig('spectratest.png')
     plt.clf()
 
-def preprocess_data(power, logpower, labels, freq):
+def preprocess_data(power, logpower, labels, freq, batchsize):
     """
     Convert power data to tensor usable for PyTorch and encode labels, then make them DataLoaders 
     to be directly used in training and testing
@@ -123,8 +122,8 @@ def preprocess_data(power, logpower, labels, freq):
     torch.manual_seed(0)
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     # create DataLoaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batchsize, shuffle=False)
 
     return train_loader, test_loader, label_to_int, class_weights
 
@@ -213,8 +212,8 @@ if __name__ == '__main__':
     power, logpower, labels, freq = load_data('tessOBAstars.h5')
     learning_rate = 1e-3
     batch_size = 64
-    epochs = 200
-    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, logpower, labels, freq)
+    epochs = 500
+    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, logpower, labels, freq, batch_size)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()#, reduction='sum')
     model = MLP(input_size=len(power.iloc[0]), output_size=len(label_to_int)).cuda()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
