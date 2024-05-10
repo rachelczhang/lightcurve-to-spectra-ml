@@ -86,7 +86,7 @@ def plot_spectra(og_power, conv_power, freq):
     plt.savefig('spectratest.png')
     plt.clf()
 
-def preprocess_data(power, logpower, labels, freq, batchsize):
+def preprocess_data(power, logpower, labels, freq):
     """
     Convert power data to tensor usable for PyTorch and encode labels, then make them DataLoaders 
     to be directly used in training and testing
@@ -110,11 +110,14 @@ def preprocess_data(power, logpower, labels, freq, batchsize):
     
     # encode string labels to integers
     labels_tensor, label_to_int = encode_labels(labels)
-    class_weights = calculate_class_weights(labels_tensor)
 
+    return power_tensor, labels_tensor, label_to_int
+
+def createdataloaders(power_tensor, labels_tensor, batchsize):
     # combined Dataset
     dataset = TensorDataset(power_tensor, labels_tensor)
 
+    class_weights = calculate_class_weights(labels_tensor)
     # split data into training and testing sets
     train_size = int(0.8 * len(dataset))
     test_size = len(dataset) - train_size
@@ -125,7 +128,7 @@ def preprocess_data(power, logpower, labels, freq, batchsize):
     train_loader = DataLoader(train_dataset, batch_size=batchsize, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batchsize, shuffle=False)
 
-    return train_loader, test_loader, label_to_int, class_weights
+    return train_loader, test_loader, class_weights
 
 # define the MLP model
 class MLP(nn.Module):
@@ -213,7 +216,8 @@ if __name__ == '__main__':
     learning_rate = 1e-3
     batch_size = 64
     epochs = 500
-    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, logpower, labels, freq, batch_size)
+    power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq, batch_size)
+    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()#, reduction='sum')
     model = MLP(input_size=len(power.iloc[0]), output_size=len(label_to_int)).cuda()
     optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)

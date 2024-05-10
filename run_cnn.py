@@ -1,9 +1,35 @@
 import torch
 import torch.nn as nn
-from run_mlp import load_data, preprocess_data
+from run_mlp import load_data, preprocess_data, createdataloaders
 import wandb
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import numpy as np 
+from sklearn.metrics import precision_score, recall_score, roc_auc_score, balanced_accuracy_score, matthews_corrcoef
+
+# def undersample_data(X, y):
+#     # convert labels tensor to numpy array to utilize numpy operations
+#     y_np = y.numpy()
+#     # gets the unique values in the labels array and the count of each unique value
+#     unique, counts = np.unique(y_np, return_counts=True)
+#     # gets the minimum count of any class
+#     min_count = np.min(counts)
+#     # list to store indices to keep
+#     indices_to_keep = []
+#     # in this case, class_value is 0, 1, then 2
+#     for class_value in unique:
+#         # get all the indices of the y_np array where the value is the class_value
+#         class_indices = np.where(y_np == class_value)[0]
+#         # randomly sample min_count number of indices from the class_indices array
+#         undersampled_indices = np.random.choice(class_indices, min_count, replace=False)
+#         indices_to_keep.append(undersampled_indices)
+#     # combine the three arrays for class_value 0, 1, and 2 into one array
+#     indices_to_keep = np.concatenate(indices_to_keep)
+#     # shuffle the indices so the model gets a generalizable batch for training
+#     np.random.shuffle(indices_to_keep)
+#     # extract the corresponding X and y values for the indices to keep
+#     X_undersampled = X[indices_to_keep]
+#     y_undersampled = y[indices_to_keep]
+#     return X_undersampled, y_undersampled
 
 class CNN1D(nn.Module):
     def __init__(self, num_channels, output_size):
@@ -34,7 +60,6 @@ class CNN1D(nn.Module):
         return logits # raw, unnormalized scores for each class
 
 def train_loop(dataloader, model, loss_fn, optimizer, epoch):
-    size = len(dataloader.dataset)
     model.train()
     total_loss = 0
     for batch, (X, y) in enumerate(dataloader):
@@ -66,11 +91,13 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
     # iniitalizes variables to accumulate total loss and number of correctly predicted samples
     test_loss, correct = 0, 0
     all_labels = []
+    all_probabilities = []
     all_predictions = []
     # torch.no_grad() ensures that no gradients are computed during test mode
     with torch.no_grad():
         # iterate over each batch in dataloader
         for X, y in dataloader:
+            print('shape', X.shape, y.shape)
             X = X.cuda().unsqueeze(1)
             y = y.cuda()
             # calculate loss, add to test_loss, compute # correct predictions
@@ -78,13 +105,26 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
             test_loss += loss_fn(pred, y).item()
             correct += (pred.argmax(1) == y).type(torch.float).sum().item()
             all_labels.extend(y.cpu().numpy())
+            all_probabilities.append(nn.functional.softmax(pred, dim=1).cpu())
             all_predictions.extend(pred.argmax(1).cpu().numpy())
+    all_probabilities = np.vstack(all_probabilities)
+    # evaluation metrics
     # calculate confusion matrix
     conf_matrix = compute_confusion_matrix(all_labels, all_predictions, num_classes) 
     # calculates average test loss per batch and calcules accuracy as percentage of correct predictions
     avg_loss = test_loss / len(dataloader)
     accuracy = 100 * correct / len(dataloader.dataset) # len(dataloader.dataset) = number of samples in dataset
-    wandb.log({"test_loss": avg_loss, "test_accuracy": accuracy, "epoch": epoch, "predictions_histogram": wandb.Histogram(all_predictions)})
+    print('all labels', all_labels)
+    print('all predictions', all_predictions)
+    print('all probabilities', all_probabilities)
+    precision = precision_score(all_labels, all_predictions, average='weighted', zero_division=0)
+    recall = recall_score(all_labels, all_predictions, average='weighted')
+    auc = roc_auc_score(all_labels, all_probabilities, multi_class='ovr')
+    balanced_acc = balanced_accuracy_score(all_labels, all_predictions)
+    mcc = matthews_corrcoef(all_labels, all_predictions)
+    wandb.log({
+        "test_loss": avg_loss, "test_accuracy": accuracy, "epoch": epoch, "predictions_histogram": wandb.Histogram(all_predictions),
+        "precision": precision, "recall": recall, "auc": auc, "balanced_accuracy": balanced_acc, "mcc": mcc})
     print(f"Test Error: \n Accuracy: {(accuracy):>0.1f}%, Avg loss: {avg_loss:>8f} \n")
     counts, _ = np.histogram(all_predictions, bins=np.arange(-0.5, len(label_to_int) + 0.5))
     print(f"Counts per class: {counts}")
@@ -94,7 +134,7 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
 if __name__ == '__main__':
     wandb.init(project="lightcurve-to-spectra-ml", entity="rczhang")
     best_loss = float('inf')
-    patience = 500 # number of epochs to wait for improvement before stopping
+    patience = 200 # number of epochs to wait for improvement before stopping
     patience_counter = 0
 
     power, logpower, labels, freq = load_data('tessOBAstars.h5')
@@ -102,10 +142,14 @@ if __name__ == '__main__':
     batch_size = 64
     epochs = 500
     num_channels = 32  # number of channels in first conv layer
-    train_dataloader, test_dataloader, label_to_int, class_weights = preprocess_data(power, logpower, labels, freq, batch_size)
+    power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq)
+    # power_tensor_undersampled, labels_tensor_undersampled = undersample_data(power_tensor, labels_tensor)
+    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size)
     input_size = len(power.iloc[0]) 
     model = CNN1D(num_channels, len(label_to_int)).cuda()
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()
+    t = -1
+    current_loss = test_loop(test_dataloader, model, loss_fn, t)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
 
