@@ -113,7 +113,14 @@ def preprocess_data(power, logpower, labels, freq):
 
     return power_tensor, labels_tensor, label_to_int
 
-def createdataloaders(power_tensor, labels_tensor, batchsize):
+def createdataloaders(power_tensor, labels_tensor, batchsize, augment_data=False, additive=False):
+    if augment_data and additive:
+        noise = np.random.normal(0, 3e-5, power_tensor.shape).astype(np.float32)
+        power_tensor += noise
+    elif augment_data and not additive:
+        noise = np.random.uniform(0.99, 1.01, power_tensor.shape).astype(np.float32)
+        power_tensor *= noise
+
     # combined Dataset
     dataset = TensorDataset(power_tensor, labels_tensor)
 

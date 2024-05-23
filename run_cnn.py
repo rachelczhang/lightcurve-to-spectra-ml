@@ -4,8 +4,11 @@ from run_mlp import load_data, preprocess_data, createdataloaders
 import wandb
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import numpy as np 
-from sklearn.metrics import precision_score, recall_score, roc_auc_score, balanced_accuracy_score, matthews_corrcoef
+from sklearn.metrics import precision_score, recall_score, roc_auc_score, balanced_accuracy_score, matthews_corrcoef, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
 
+torch.manual_seed(42)
+np.random.seed(42)
 # def undersample_data(X, y):
 #     # convert labels tensor to numpy array to utilize numpy operations
 #     y_np = y.numpy()
@@ -43,6 +46,7 @@ class CNN1D(nn.Module):
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2), # max pooling layer that reduces dimensionality by taking max value of each 2-element window
             nn.Conv1d(num_channels, num_channels * 2, kernel_size=5, padding=2),
+            # nn.BatchNorm1d(num_channels * 2), 
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
         )
@@ -97,7 +101,6 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
     with torch.no_grad():
         # iterate over each batch in dataloader
         for X, y in dataloader:
-            print('shape', X.shape, y.shape)
             X = X.cuda().unsqueeze(1)
             y = y.cuda()
             # calculate loss, add to test_loss, compute # correct predictions
@@ -108,15 +111,23 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
             all_probabilities.append(nn.functional.softmax(pred, dim=1).cpu())
             all_predictions.extend(pred.argmax(1).cpu().numpy())
     all_probabilities = np.vstack(all_probabilities)
-    # evaluation metrics
+    
+    ######### Evaluation Metrics ################
+
     # calculate confusion matrix
     conf_matrix = compute_confusion_matrix(all_labels, all_predictions, num_classes) 
+    display = ConfusionMatrixDisplay(conf_matrix, display_labels=list(label_to_int.keys()))
+    fig, ax = plt.subplots(figsize=(10, 10))
+    display.plot(values_format='d', cmap='Blues', ax=ax)
+    ax.set_title("Confusion Matrix at Epoch {}".format(epoch))
+    plt.tight_layout()
+    plt.savefig("conf_matrix.png")
+    plt.close(fig)
+    wandb.log({"conf_matrix": wandb.Image("conf_matrix.png", caption="Confusion Matrix at Epoch {}".format(epoch))})
+
     # calculates average test loss per batch and calcules accuracy as percentage of correct predictions
     avg_loss = test_loss / len(dataloader)
     accuracy = 100 * correct / len(dataloader.dataset) # len(dataloader.dataset) = number of samples in dataset
-    print('all labels', all_labels)
-    print('all predictions', all_predictions)
-    print('all probabilities', all_probabilities)
     precision = precision_score(all_labels, all_predictions, average='weighted', zero_division=0)
     recall = recall_score(all_labels, all_predictions, average='weighted')
     auc = roc_auc_score(all_labels, all_probabilities, multi_class='ovr')
@@ -132,7 +143,7 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
     return avg_loss
 
 if __name__ == '__main__':
-    wandb.init(project="lightcurve-to-spectra-ml", entity="rczhang")
+    wandb.init(project="lightcurve-to-spectra-ml-cnn", entity="rczhang")
     best_loss = float('inf')
     patience = 200 # number of epochs to wait for improvement before stopping
     patience_counter = 0
@@ -144,7 +155,7 @@ if __name__ == '__main__':
     num_channels = 32  # number of channels in first conv layer
     power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq)
     # power_tensor_undersampled, labels_tensor_undersampled = undersample_data(power_tensor, labels_tensor)
-    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size)
+    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size, augment_data=True, additive=False)
     input_size = len(power.iloc[0]) 
     model = CNN1D(num_channels, len(label_to_int)).cuda()
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()
