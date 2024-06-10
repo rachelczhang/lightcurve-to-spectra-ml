@@ -142,19 +142,31 @@ def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
     return avg_loss
 
 if __name__ == '__main__':
-	wandb.init(project="lightcurve-to-spectra-ml-benchmark-mlp", entity="rczhang")
-	alpha0, nu_char, gamma, Cw, labels = load_data('curvefitparams.h5')
-	learning_rate = 1e-4
-	epochs = 100
-	data_normalized, labels, label_to_int = preprocess_data(alpha0, nu_char, gamma, Cw, labels)
-	print('data normalized', data_normalized)
-	train_loader, test_loader, class_weights = create_dataloaders(data_normalized, labels)
-	loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()#, reduction='sum')
-	model = MLP(input_size=4, output_size=len(label_to_int)).cuda()
-	optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
-	for t in range(epochs):
-		print(f"Epoch {t+1}\n-------------------------------")
-		train_loop(train_loader, model, loss_fn, optimizer, t)
-		test_loop(test_loader, model, loss_fn, t)
-	print("Done!")
-	wandb.finish()
+    wandb.init(project="lightcurve-to-spectra-ml-benchmark-mlp", entity="rczhang")
+    best_loss = float('inf')
+    patience = 200 
+    patience_counter = 0
+    alpha0, nu_char, gamma, Cw, labels = load_data('curvefitparams.h5')
+    learning_rate = 1e-3
+    epochs = 1000000
+    data_normalized, labels, label_to_int = preprocess_data(alpha0, nu_char, gamma, Cw, labels)
+    print('data normalized', data_normalized)
+    train_loader, test_loader, class_weights = create_dataloaders(data_normalized, labels)
+    loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()#, reduction='sum')
+    model = MLP(input_size=4, output_size=len(label_to_int)).cuda()
+    optimizer = torch.optim.SGD(model.parameters(), lr=learning_rate)
+    for t in range(epochs):
+        print(f"Epoch {t+1}\n-------------------------------")
+        train_loop(train_loader, model, loss_fn, optimizer, t)
+        current_loss = test_loop(test_loader, model, loss_fn, t)
+        if current_loss < best_loss:
+            best_loss = current_loss
+            patience_counter = 0
+            torch.save(model.state_dict(), "best_benchmark_mlp.pth")
+        else:
+            patience_counter += 1
+        if patience_counter >= patience:
+            print('Early stopping triggered')
+            break 
+    print("Done!")
+    wandb.finish()
