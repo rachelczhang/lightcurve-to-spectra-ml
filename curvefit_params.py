@@ -57,8 +57,8 @@ if __name__ == '__main__':
         print(f"nu_char (Characteristic Frequency): {nu_char}")
         print(f"gamma (Shape factor): {gamma}")
         print(f"Cw (Constant offset): {Cw}")
-        if gamma <= 4.5:
-            benchmark_df = benchmark_df._append({'alpha0': alpha0, 'nu_char': nu_char, 'gamma': gamma, 'Cw': Cw}, ignore_index=True)
+        # if gamma <= 4.5:
+        benchmark_df = benchmark_df._append({'alpha0': alpha0, 'nu_char': nu_char, 'gamma': gamma, 'Cw': Cw}, ignore_index=True)
     benchmark_df['labels'] = labels
     print('benchmark df', benchmark_df)
     plt.figure(figsize=(10, 6))
