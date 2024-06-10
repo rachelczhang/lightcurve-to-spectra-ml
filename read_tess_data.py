@@ -11,6 +11,7 @@ import sqlite3
 import os
 import pandas as pd 
 import astropy.units as u
+import h5py
 
 base_directory = '/mnt/home/neisner/ceph/latte/output_LATTE/data/'
 TIC = '*306491594*'
@@ -97,8 +98,8 @@ class Database:
 
 def query_oba_catalog():
 	"""
-	reads in oba-cat.dat and returns all of the TIC IDs corresponding to all of the 
-	O spectral type stars in the catalog
+	reads in oba-cat.dat and returns all of the TIC IDs with labeled
+	OBA spectral type stars in the catalog
 	"""	
 	with open('/mnt/sdceph/users/rzhang/oba-cat.dat', 'r') as file:
 		lines = file.readlines()
@@ -117,12 +118,11 @@ def query_oba_catalog():
 			# else:
 			# 	print('term', term)
 			# 	print('J-H', float(term[7])-float(term[9]), 'J-K', float(term[7])-float(term[11]), 'len', len(term))
-			if (term[-1][0] == 'O' or term[-1][0] == 'B' or term[-1][0] == 'A') and len(term) == 24:
-			# if term[-1][0] == 'B' and len(term) == 24:
-				tic_ids.append(int(term[0]))
-				j_h.append(float(term[7])-float(term[9]))
-				j_k.append(float(term[7])-float(term[11]))
-				spectral_type.append(term[-1][0])
+			# if (term[-1][0] == 'O' or term[-1][0] == 'B' or term[-1][0] == 'A') and len(term) == 24:
+			tic_ids.append(int(term[0]))
+			j_h.append(float(term[7])-float(term[9]))
+			j_k.append(float(term[7])-float(term[11]))
+			spectral_type.append(term[-1][0])
 		print('J-H', max(j_h), min(j_h))
 		print('J-K', max(j_k), min(j_k))
 		print('len', len(tic_ids))
@@ -267,42 +267,67 @@ if __name__ == '__main__':
 	
 	# load the database - this is a quick way to search for all of the needed urls
 	db = Database(DB_FILE)
+
+	######################## EFFICIENT DATA STORAGE METHOD #################################
+	h5_file_path = '/mnt/sdceph/users/rzhang/tessOBAstars_all.h5'
+	with h5py.File(h5_file_path, 'w') as h5f:
+		for tic_id, sp_type in zip(tic_ids, spectral_type):
+			sectorids, lcpaths, tppaths = db.search(tic_id)
+			if lcpaths != 0:
+				obs_id = 0
+				for filepath in lcpaths:
+					print('looking for filepath: ', filepath)
+					if read_light_curve(filepath) is not None:
+						time, flux = read_light_curve(filepath)
+						freq, power = light_curve_to_power_spectrum(time, flux)
+						# Store each power spectrum in an HDF5 dataset
+						dataset_name = f'TIC_{tic_id}_{obs_id}_Power'
+						h5f.create_dataset(dataset_name, data=power)
+						if 'Frequency' not in h5f:
+							h5f.create_dataset('Frequency', data=freq)
+						h5f[dataset_name].attrs['TIC_ID'] = tic_id
+						h5f[dataset_name].attrs['Spectral_Type'] = sp_type
+						obs_id += 1
+
+	############################################################################
+
+	############# INEFFICIENT DATA STORAGE METHOD ############################
 	# pandas dataframe to store all the data of TIC ID, frequency, power
-	df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
-	O_stars = []
-	B_stars = []
-	A_stars = []
-	ind = 0
-	for tic_id in tic_ids:
-		sp_type = spectral_type[ind]
-		sectorids, lcpaths, tppaths = db.search(tic_id)
-		if lcpaths != 0:
-			for filepath in lcpaths:
-				print('looking for filepath: ', filepath)
-				if read_light_curve(filepath) is not None:
-					time, flux = read_light_curve(filepath)
-					freq, power = light_curve_to_power_spectrum(time, flux)
-					df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
-					if sp_type == 'O':
-						O_stars.append(power)
-					elif sp_type == 'B':
-						B_stars.append(power)
-					elif sp_type == 'A':
-						A_stars.append(power)
-		ind += 1
-	df.to_hdf('tessOBAstars.h5', key='df', mode='w')
+	# df = pd.DataFrame(columns=['TIC ID', 'Frequency', 'Power'])
+	# O_stars = []
+	# B_stars = []
+	# A_stars = []
+	# ind = 0
+	# for tic_id in tic_ids:
+	# 	sp_type = spectral_type[ind]
+	# 	sectorids, lcpaths, tppaths = db.search(tic_id)
+	# 	if lcpaths != 0:
+	# 		for filepath in lcpaths:
+	# 			print('looking for filepath: ', filepath)
+	# 			if read_light_curve(filepath) is not None:
+	# 				time, flux = read_light_curve(filepath)
+	# 				freq, power = light_curve_to_power_spectrum(time, flux)
+	# 				df = df._append({'TIC ID': tic_id, 'Frequency': freq, 'Power': power, 'Spectral Type': sp_type}, ignore_index=True)
+					# if sp_type == 'O':
+					# 	O_stars.append(power)
+					# elif sp_type == 'B':
+					# 	B_stars.append(power)
+					# elif sp_type == 'A':
+					# 	A_stars.append(power)
+	# 	ind += 1
+	# df.to_hdf('/mnt/sdceph/users/rzhang/tessOBAstars.h5', key='df', mode='w')
 
-	print('num O stars', len(O_stars))
-	print('num B stars', len(B_stars))
-	print('num A stars', len(A_stars))
+	# print('num O stars', len(O_stars))
+	# print('num B stars', len(B_stars))
+	# print('num A stars', len(A_stars))
 
-	star_df = pd.DataFrame(columns=['O', 'B', 'A', 'freq'])
-	star_df['O'] = [O_stars]
-	star_df['B'] = [B_stars]
-	star_df['A'] = [A_stars]
-	star_df['freq'] = [freq]
-	star_df.to_hdf('OBApowers.h5', key='df', mode='w')
-
+	# star_df = pd.DataFrame(columns=['O', 'B', 'A', 'freq'])
+	# star_df['O'] = [O_stars]
+	# star_df['B'] = [B_stars]
+	# star_df['A'] = [A_stars]
+	# star_df['freq'] = [freq]
+	# star_df.to_hdf('OBApowers.h5', key='df', mode='w')
+	##########################################################################
 	# # stitching light curves
 	# tic_id = 306491594
 	# sectorids, lcpaths, tppaths = db.search(tic_id)
