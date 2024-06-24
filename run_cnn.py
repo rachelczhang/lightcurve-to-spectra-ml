@@ -35,7 +35,7 @@ np.random.seed(42)
 #     return X_undersampled, y_undersampled
 
 class CNN1D(nn.Module):
-    def __init__(self, num_channels, output_size):
+    def __init__(self, num_channels, output_size, input_size):
         """
         num_channels: # of output channels for first convolutional layer
         output_size: # of classes for the final output layer
@@ -49,10 +49,17 @@ class CNN1D(nn.Module):
             # nn.BatchNorm1d(num_channels * 2), 
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
+            # nn.MaxPool1d(kernel_size=2), # 06/07: TESTING ONE MORE POOLING LAYER
         )
+        # use a dummy input to dynamically determine the output dimension
+        dummy_input = torch.randn(1, 1, input_size)  # batch size of 1, 1 channel, and initial input size
+        dummy_output = self.conv_layers(dummy_input)
+        self.output_dim = dummy_output.numel() // dummy_output.shape[0]  # total number of features divided by batch size
+        print('output dim', self.output_dim)
+        print('hard coded dim', num_channels * 2 * (input_size // 4))
         self.flatten = nn.Flatten() # flattens multiple-dimensional tensor convolutional layers output --> 1D tensor
         self.fc_layers = nn.Sequential( # container of layers that processes fully connected part of network
-            nn.Linear(num_channels * 2 * (input_size // 4), 128),  
+            nn.Linear(self.output_dim, 128),  # nn.Linear(num_channels * 2 * (input_size // 4), 128), 
             nn.ReLU(),
             nn.Linear(128, output_size),
         )
@@ -86,7 +93,7 @@ def compute_confusion_matrix(true, pred, num_classes):
         conf_matrix[t, p] += 1
     return conf_matrix
 
-def test_loop(dataloader, model, loss_fn, epoch, num_classes=3):
+def test_loop(dataloader, model, loss_fn, epoch, label_to_int, num_classes=3):
     """
     Evaluate the model's performance on the test dataset
     """
@@ -157,17 +164,17 @@ if __name__ == '__main__':
     # power_tensor_undersampled, labels_tensor_undersampled = undersample_data(power_tensor, labels_tensor)
     train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size, augment_data=True, additive=False)
     input_size = len(power.iloc[0]) 
-    model = CNN1D(num_channels, len(label_to_int)).cuda()
+    model = CNN1D(num_channels, len(label_to_int), input_size).cuda()
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()
     t = -1
-    current_loss = test_loop(test_dataloader, model, loss_fn, t)
+    current_loss = test_loop(test_dataloader, model, loss_fn, t, label_to_int)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
 
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_dataloader, model, loss_fn, optimizer, t)
-        current_loss = test_loop(test_dataloader, model, loss_fn, t)
+        current_loss = test_loop(test_dataloader, model, loss_fn, t, label_to_int)
         scheduler.step(current_loss)
         if current_loss < best_loss:
             best_loss = current_loss
