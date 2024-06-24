@@ -12,6 +12,8 @@ import os
 import pandas as pd 
 import astropy.units as u
 import h5py
+from curvefit_params import power_spectrum_model
+from scipy.optimize import curve_fit
 
 base_directory = '/mnt/home/neisner/ceph/latte/output_LATTE/data/'
 TIC = '*306491594*'
@@ -207,7 +209,7 @@ def light_curve_to_power_spectrum(time, flux):
 
 	# create consistent frequency range for all power spectra for ML purposes
 	freq = np.arange(0.04, 250, 0.04)
-	ls = LombScargle(time, flux, nterms=1, normalization='psd')
+	ls = LombScargle(np.array(time), np.array(flux), nterms=1, normalization='psd')
 	p = ls.power(freq, method='fast')
 	amplitude_power = np.sqrt(p) * np.sqrt(4.0 / len(time))
 	print('og lens', len(time), len(flux))
@@ -217,7 +219,7 @@ def light_curve_to_power_spectrum(time, flux):
 def plot_periodogram(freq, amplitude_power):
 	plt.scatter(freq, amplitude_power, s=1)
 	# plt.plot(freq, amplitude_power, linewidth=0.5)
-	# plt.xscale('log')
+	plt.xscale('log')
 	plt.yscale('log')
 	plt.xlabel('Frequency [1/d]')
 	plt.ylabel('Amplitude Power')
@@ -341,6 +343,23 @@ if __name__ == '__main__':
 	# print('power', power)
 	# plot_periodogram(freq, power)
 
+	# params, params_covariance = curve_fit(power_spectrum_model, freq, power, p0=[0.0003, 2, 3, 2e-5], bounds=([1e-7, 5e-3, 0, 0], [0.01, 12, 13, 0.1]))
+	# print('params', params)
+	# alpha0, nu_char, gamma, Cw = params
+	# print("Fitted parameters:")
+	# print(f"alpha0 (Amplitude): {alpha0}")
+	# print(f"nu_char (Characteristic Frequency): {nu_char}")
+	# print(f"gamma (Shape factor): {gamma}")
+	# print(f"Cw (Constant offset): {Cw}")
 
-	# df = pd.read_hdf('lightkurvefreqpow.h5', 'df')
-	# lightkurve_vs_astropy_power_spectrum(df, power, freq)
+	# plt.scatter(freq, power, label='Data')
+	# plt.plot(freq, power_spectrum_model(freq, *params), label='Fitted function', color='red')
+	# plt.xlabel(r'Frequency ($\nu$)')
+	# plt.ylabel(r'Power Spectrum ($\alpha(\nu)$)')
+	# plt.xscale('log')
+	# plt.yscale('log')
+	# plt.legend()
+	# plt.savefig('curve_fitting.png')
+	# plt.clf()
+	# # df = pd.read_hdf('lightkurvefreqpow.h5', 'df')
+	# # lightkurve_vs_astropy_power_spectrum(df, power, freq)
