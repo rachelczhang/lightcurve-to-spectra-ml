@@ -10,6 +10,8 @@ import torch.nn as nn
 import wandb
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import matplotlib.pyplot as plt
+from sklearn.metrics import mean_squared_error 
+import run_cnn
 
 torch.manual_seed(42)
 np.random.seed(42)
@@ -18,15 +20,15 @@ def read_data():
     df_iacob1 = pd.read_csv('/mnt/sdceph/users/rzhang/iacob1.csv')
     tic_id = df_iacob1['TIC_ID']
     teff = df_iacob1['Teff']
-    logL = df_iacob1['logL']
-    return tic_id, teff, logL
+    logg = df_iacob1['logg']
+    Msp = df_iacob1['Msp']
+    return tic_id, teff, logg, Msp
 
-def save_power_freq_info():
-    tic_id, teff, logL = read_data()
+def save_power_freq_info(h5_file_path):
+    tic_id, teff, logg, Msp = read_data()
     db = read_tess_data.Database('/mnt/home/neisner/ceph/latte/output_LATTE/tess_database.db')
-    h5_file_path = '/mnt/sdceph/users/rzhang/tessOregression.h5'
     with h5py.File(h5_file_path, 'w') as h5f:
-        for tic_id, t, l in zip(tic_id, teff, logL):
+        for tic_id, t, g, m in zip(tic_id, teff, logg, Msp):
             sectorids, lcpaths, tppaths = db.search(tic_id)
             if lcpaths != 0:
                 obs_id = 0
@@ -41,13 +43,15 @@ def save_power_freq_info():
                             h5f.create_dataset('Frequency', data=freq)
                         h5f[dataset_name].attrs['TIC_ID'] = tic_id
                         h5f[dataset_name].attrs['Teff'] = t
-                        h5f[dataset_name].attrs['logL'] = l
+                        h5f[dataset_name].attrs['logg'] = g
+                        h5f[dataset_name].attrs['Msp'] = m
                         obs_id += 1
 
 def read_hdf5_data(hdf5_path):
     power = []
     Teff = []
-    logL = []
+    logg = []
+    Msp = []
     tic_id = []
     with h5py.File(hdf5_path, 'r') as h5f:
         if 'Frequency' in h5f:
@@ -55,22 +59,26 @@ def read_hdf5_data(hdf5_path):
         for name in h5f:
             if name != 'Frequency': 
                 dataset = h5f[name]
-                power.append(list(dataset))
-                Teff.append(dataset.attrs['Teff'])
-                logL.append(dataset.attrs['logL'])
-                tic_id.append(dataset.attrs['TIC_ID'])
+                if not any('>' in str(dataset.attrs[attr]) or '<' in str(dataset.attrs[attr]) for attr in ['Teff', 'logg', 'Msp']):
+                    power.append(list(dataset))
+                    Teff.append(dataset.attrs['Teff'])
+                    logg.append(dataset.attrs['logg'])
+                    Msp.append(dataset.attrs['Msp'])
+                    tic_id.append(dataset.attrs['TIC_ID'])
     power = pd.Series(power)
-    return power, Teff, logL, frequencies, tic_id
+    return power, Teff, logg, Msp, frequencies, tic_id
 
-def preprocess_data(power, Teff, logL, freq):
+def preprocess_data(power, Teff, logg, Msp, freq):
     Teff = [float(t) for t in Teff]
-    logL = [float(l) for l in logL]
+    logg = [float(l) for l in logg]
+    Msp = [float(m) for m in Msp]
     logpower = power.apply(lambda x: np.log10(x).tolist())
     scaled_power = apply_min_max_scaling(logpower)
+    # scaled_power = power
     # convert from Series --> list of lists --> array --> tensor
     power_tensor = torch.tensor(np.array(scaled_power.tolist(), dtype=np.float32))
-    # create labels tensor for Teff, logL    
-    labels_tensor = torch.tensor(list(zip(Teff, logL)), dtype=torch.float32)
+    # create labels tensor for Teff, logg    
+    labels_tensor = torch.tensor(list(zip(Teff, logg, Msp)), dtype=torch.float32)
     return power_tensor, labels_tensor
 
 def create_dataloaders(power_tensor, labels_tensor, batch_size):
@@ -80,7 +88,19 @@ def create_dataloaders(power_tensor, labels_tensor, batch_size):
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader
+    return train_loader, test_loader, test_dataset
+
+def calculate_lum_from_teff_logg(Teff, logg, Msp):
+    # cgs units
+    G = np.float64(6.67e-8)
+    sigma = np.float64(5.67e-5)
+    g = 10**logg
+    Msp = Msp * np.float64(1.989e33)
+    Teff_K = Teff*10**3
+    L = 4 * np.pi * G * Msp * sigma * Teff_K**4 / g
+    L_solar = L/np.float64(3.826e33)
+    logL_solar = np.log10(L_solar)
+    return logL_solar
 
 class MLP(nn.Module):
     def __init__(self, input_size, output_size):
@@ -103,7 +123,7 @@ def train_loop(dataloader, model, loss_fn, optimizer, epoch):
     model.train()
     total_loss = 0
     for X, y in dataloader:
-        X, y = X.cuda(), y.cuda()
+        X, y = X.cuda().unsqueeze(1), y.cuda() #UNSQUEEZE IF CNN
         pred = model(X)
         loss = loss_fn(pred, y)
         optimizer.zero_grad()
@@ -121,7 +141,7 @@ def test_loop(dataloader, model, loss_fn, epoch):
     all_ys = []
     with torch.no_grad():
         for X, y in dataloader:
-            X, y = X.cuda(), y.cuda()
+            X, y = X.cuda().unsqueeze(1), y.cuda()
             pred = model(X)
             total_loss += loss_fn(pred, y).item()
             all_preds.extend(pred.cpu().numpy())
@@ -141,57 +161,92 @@ def test_loop(dataloader, model, loss_fn, epoch):
     plt.plot([all_ys[:, 0].min(), all_ys[:, 0].max()], [all_ys[:, 0].min(), all_ys[:, 0].max()], 'r')
     plt.grid(True)
     plt.savefig("pred_vs_act_Teff.png")
-    wandb.log({"Predicted vs Actual Teff": wandb.Image("pred_vs_act_Teff.png", caption="Predictions vs. Actual Teff at Epoch {}".format(epoch))})
+    wandb.log({"CNN Predicted vs Actual Teff": wandb.Image("pred_vs_act_Teff.png", caption="Predictions vs. Actual Teff at Epoch {}".format(epoch))})
     plt.close()
 
     plt.figure(figsize=(10, 6))
     plt.scatter(all_ys[:, 1], all_preds[:, 1], alpha=0.3)
-    plt.xlabel('Actual logL')
-    plt.ylabel('Predicted logL')
-    plt.title('Predicted vs Actual logL')
+    plt.xlabel('Actual logg')
+    plt.ylabel('Predicted logg')
+    plt.title('Predicted vs Actual logg')
     plt.plot([all_ys[:, 1].min(), all_ys[:, 1].max()], [all_ys[:, 1].min(), all_ys[:, 1].max()], 'r')
     plt.grid(True)
-    plt.savefig("pred_vs_act_logL.png")
-    wandb.log({"Predicted vs Actual logL": wandb.Image("pred_vs_act_logL.png", caption="Predictions vs. Actual logL at Epoch {}".format(epoch))})
+    plt.savefig("pred_vs_act_logg.png")
+    wandb.log({"CNN Predicted vs Actual logg": wandb.Image("pred_vs_act_logg.png", caption="Predictions vs. Actual logg at Epoch {}".format(epoch))})
     plt.close()
 
-    residuals = all_preds[:, 0] - all_ys[:, 0]
     plt.figure(figsize=(10, 6))
-    plt.scatter(all_ys[:, 0], residuals, alpha=0.3)
-    plt.xlabel('Actual Teff')
-    plt.ylabel('Residuals')
-    plt.title('Residuals Plot Teff')
-    plt.hlines(y=0, xmin=all_ys[:, 0].min(), xmax=all_ys[:, 0].max(), colors='r')
+    plt.scatter(all_ys[:, 2], all_preds[:, 2], alpha=0.3)
+    plt.xlabel('Actual Msp')
+    plt.ylabel('Predicted Msp')
+    plt.title('Predicted vs Actual Msp')
+    plt.plot([all_ys[:, 2].min(), all_ys[:, 2].max()], [all_ys[:, 2].min(), all_ys[:, 2].max()], 'r')
     plt.grid(True)
-    plt.savefig("residuals_Teff.png")
-    wandb.log({"Residuals Teff": wandb.Image("residuals_Teff.png", caption="Residuals Teff at Epoch {}".format(epoch))})
+    plt.savefig("pred_vs_act_Msp.png")
+    wandb.log({"CNN Predicted vs Actual Msp": wandb.Image("pred_vs_act_Msp.png", caption="Predictions vs. Actual Msp at Epoch {}".format(epoch))})
     plt.close()
 
-    residuals = all_preds[:, 1] - all_ys[:, 1]
+    # residuals = all_preds[:, 0] - all_ys[:, 0]
+    # plt.figure(figsize=(10, 6))
+    # plt.scatter(all_ys[:, 0], residuals, alpha=0.3)
+    # plt.xlabel('Actual Teff')
+    # plt.ylabel('Residuals')
+    # plt.title('Residuals Plot Teff')
+    # plt.hlines(y=0, xmin=all_ys[:, 0].min(), xmax=all_ys[:, 0].max(), colors='r')
+    # plt.grid(True)
+    # plt.savefig("residuals_Teff.png")
+    # wandb.log({"Residuals Teff": wandb.Image("residuals_Teff.png", caption="Residuals Teff at Epoch {}".format(epoch))})
+    # plt.close()
+
+    # residuals = all_preds[:, 1] - all_ys[:, 1]
+    # plt.figure(figsize=(10, 6))
+    # plt.scatter(all_ys[:, 1], residuals, alpha=0.3)
+    # plt.xlabel('Actual logL')
+    # plt.ylabel('Residuals')
+    # plt.title('Residuals Plot logL')
+    # plt.hlines(y=0, xmin=all_ys[:, 1].min(), xmax=all_ys[:, 1].max(), colors='r')
+    # plt.grid(True)
+    # plt.savefig("residuals_logL.png")
+    # wandb.log({"Residuals logL": wandb.Image("residuals_logL.png", caption="Residuals logL at Epoch {}".format(epoch))})
+    # plt.close()
+    return avg_loss, all_ys, all_preds
+
+def get_spectroscopic_lum_info(all_ys, all_preds):
+    print('all ys', all_ys)
+    print('all preds', all_preds)
+    actual_logL = calculate_lum_from_teff_logg(np.array(all_ys[:, 0], dtype=np.float64), np.array(all_ys[:, 1], dtype=np.float64), np.array(all_ys[:, 2], dtype=np.float64))
+    print('actual logL', actual_logL)
+    pred_logL = calculate_lum_from_teff_logg(np.array(all_preds[:, 0], dtype=np.float64), np.array(all_preds[:, 1], dtype=np.float64), np.array(all_preds[:, 2], dtype=np.float64))
+    print('pred logL', pred_logL)
     plt.figure(figsize=(10, 6))
-    plt.scatter(all_ys[:, 1], residuals, alpha=0.3)
+    plt.scatter(actual_logL, pred_logL, alpha=0.3)
     plt.xlabel('Actual logL')
-    plt.ylabel('Residuals')
-    plt.title('Residuals Plot logL')
-    plt.hlines(y=0, xmin=all_ys[:, 1].min(), xmax=all_ys[:, 1].max(), colors='r')
+    plt.ylabel('Predicted logL')
+    plt.title('Predicted vs Actual Spectroscopic logL')
+    plt.plot([min(actual_logL), max(actual_logL)], [min(actual_logL), max(actual_logL)], 'r')
     plt.grid(True)
-    plt.savefig("residuals_logL.png")
-    wandb.log({"Residuals logL": wandb.Image("residuals_logL.png", caption="Residuals logL at Epoch {}".format(epoch))})
+    plt.savefig("pred_vs_act_logL.png")
     plt.close()
 
-    return avg_loss
+    mse = mean_squared_error(actual_logL, pred_logL)
+    print('MSE', mse)
 
 if __name__ == '__main__':
     wandb.init(project="lightcurve-to-spectra-ml-regression", entity="rczhang")
-    # save_power_freq_info()
-    power, Teff, logL, frequencies, tic_id = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOregression.h5')  
-    power_tensor, labels_tensor = preprocess_data(power, Teff, logL, frequencies)
+    h5_file_path = '/mnt/sdceph/users/rzhang/tessOregression.h5'
+    # save_power_freq_info(h5_file_path)
+    power, Teff, logg, Msp, frequencies, tic_id = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOregression.h5')  
+    print('len teff', len(Teff))
+    power_tensor, labels_tensor = preprocess_data(power, Teff, logg, Msp, frequencies)
     learning_rate = 1e-3
     batch_size = 32
     epochs = 10000
-    train_loader, test_loader = create_dataloaders(power_tensor, labels_tensor, batch_size)
+    train_loader, test_loader, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
     loss_fn = nn.MSELoss().cuda()
-    model = MLP(input_size=len(power.iloc[0]), output_size=2).cuda()
+    # model = MLP(input_size=len(power.iloc[0]), output_size=3).cuda()
+    num_channels = 32
+    input_size = len(power.iloc[0])
+    model = run_cnn.CNN1D(num_channels, 3, input_size).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
     best_loss = float('inf')
@@ -200,7 +255,7 @@ if __name__ == '__main__':
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_loader, model, loss_fn, optimizer, t)
-        current_loss = test_loop(test_loader, model, loss_fn, t)
+        current_loss, all_ys, all_preds = test_loop(test_loader, model, loss_fn, t)
         scheduler.step(current_loss)
         if current_loss < best_loss:
             best_loss = current_loss
@@ -211,5 +266,6 @@ if __name__ == '__main__':
         if patience_counter >= patience:
             print('Early stopping triggered')
             break 
+    get_spectroscopic_lum_info(all_ys, all_preds)
     print("Done!")
     wandb.finish()
