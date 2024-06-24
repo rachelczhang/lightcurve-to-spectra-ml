@@ -64,12 +64,19 @@ def moving_average(data, window_size):
     smoothed_data: list of lists of the smoothed data
     """
     window = np.ones(window_size) / window_size
-    smoothed_data = []
-    for sublist in data:
+    ### RETURNS PANDAS SERIES ###
+    def smooth(sublist):
         smoothed_sublist = np.convolve(sublist, window, mode='same')
-        smoothed_array = np.array(smoothed_sublist)
-        smoothed_data.append(np.log10(smoothed_array).tolist())
-    return smoothed_data
+        return np.log10(smoothed_sublist).tolist()
+    return data.apply(smooth)
+
+    ### RETURNS LIST OF LISTS ###
+    # smoothed_data = []
+    # for sublist in data:
+    #     smoothed_sublist = np.convolve(sublist, window, mode='same')
+    #     smoothed_array = np.array(smoothed_sublist)
+    #     smoothed_data.append(np.log10(smoothed_array).tolist())
+    # return smoothed_data
 
 def plot_spectra(og_power, conv_power, freq):
     """
@@ -85,6 +92,13 @@ def plot_spectra(og_power, conv_power, freq):
     plt.ylabel('Amplitude Power')
     plt.savefig('spectratest.png')
     plt.clf()
+
+def apply_min_max_scaling(logpower):
+    all_values = [item for sublist in logpower for item in sublist]  # flatten all lists into a single list
+    min_logpower = min(all_values)
+    max_logpower = max(all_values)
+    scaled_logpower = logpower.apply(lambda row: [(x - min_logpower) / (max_logpower - min_logpower) for x in row])
+    return scaled_logpower
 
 def preprocess_data(power, logpower, labels, freq):
     """
@@ -102,11 +116,13 @@ def preprocess_data(power, logpower, labels, freq):
     label_to_int: dict for mapping from original labels to encoded integers
     class_weights: torch.Tensor for the weights for each class.
     """
-    smoothed_power = moving_average(power, 10)
+    # smoothed_power = moving_average(power, 10)
+    smoothed_power = power
+    scaled_smoothed_power = apply_min_max_scaling(smoothed_power)
     # plot example spectra of original power vs smoothed power
-    plot_spectra(logpower, smoothed_power, freq)
-    # convert list of lists of floats to tensor
-    power_tensor = torch.tensor(smoothed_power, dtype=torch.float32)
+    plot_spectra(logpower, smoothed_power.tolist(), freq)
+    # convert from Series --> list of lists --> array --> tensor
+    power_tensor = torch.tensor(np.array(scaled_smoothed_power.tolist(), dtype=np.float32))
     
     # encode string labels to integers
     labels_tensor, label_to_int = encode_labels(labels)
@@ -223,7 +239,7 @@ if __name__ == '__main__':
     learning_rate = 1e-3
     batch_size = 64
     epochs = 500
-    power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq, batch_size)
+    power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq)
     train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size)
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()#, reduction='sum')
     model = MLP(input_size=len(power.iloc[0]), output_size=len(label_to_int)).cuda()
