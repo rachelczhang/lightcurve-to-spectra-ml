@@ -11,7 +11,7 @@ torch.manual_seed(42)
 np.random.seed(42)
 
 class CNN1DFrozenConv(nn.Module):
-    def __init__(self, pretrained_encoder, output_size):
+    def __init__(self, pretrained_encoder, output_size, input_size, device):
         super().__init__()
         self.encoder = pretrained_encoder
         # freeze the encoder
@@ -26,6 +26,8 @@ class CNN1DFrozenConv(nn.Module):
         self.fc_layers = nn.Sequential(
             nn.Linear(self.output_dim, 128),
             nn.ReLU(),
+            # nn.Linear(128, 64),  
+            # nn.ReLU(),
             nn.Linear(128, output_size)
         )
 
@@ -50,9 +52,9 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ### manually modify size ###
     pretrained_model = self_supervised.SimCLR(self_supervised.EncoderCNN1D(num_channels, input_size), 256)
-    pretrained_model.load_state_dict(torch.load('best_selfsup21.pth', map_location=device))
+    pretrained_model.load_state_dict(torch.load('best_selfsup40.pth', map_location=device))
     pretrained_model.to(device)
-    model = CNN1DFrozenConv(pretrained_model.encoder, len(label_to_int)).to(device)
+    model = CNN1DFrozenConv(pretrained_model.encoder, len(label_to_int), input_size, device).to(device)
     # loss function 
     best_loss = float('inf')
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).to(device)

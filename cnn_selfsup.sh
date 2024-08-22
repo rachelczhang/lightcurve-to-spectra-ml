@@ -8,6 +8,7 @@
 #SBATCH --mem=50G                 
 #SBATCH --output=cnnselfsup.out
 
+module load modules/2.2
 module load python
 module load gcc
 module load cuda

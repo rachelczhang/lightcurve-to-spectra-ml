@@ -4,8 +4,9 @@ from lightly.models.modules import SimCLRProjectionHead
 import h5py
 import numpy as np 
 from torch.utils.data import Dataset, DataLoader
-from run_mlp import moving_average
+from run_mlp import moving_average, apply_min_max_scaling
 import wandb
+import pandas as pd 
 
 torch.manual_seed(42)
 np.random.seed(42)
@@ -19,8 +20,10 @@ def read_hdf5_data(hdf5_path):
         for name in h5f:
             if name != 'Frequency': 
                 dataset = h5f[name]
-                power.append(np.array(dataset))
+                power.append(list(dataset))
                 spectral_types.append(dataset.attrs['Spectral_Type'])
+    power = pd.Series(power)
+    print('len power', power.size)
     return power, spectral_types, frequencies
 
 def add_noise(data, noise_level=0.01):
@@ -54,10 +57,14 @@ class EncoderCNN1D(nn.Module):
             nn.Conv1d(1, num_channels, kernel_size=5, padding=2),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
-            nn.Conv1d(num_channels, num_channels * 2, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
-            nn.MaxPool1d(kernel_size=2), # 06/07: TESTING ONE MORE POOLING LAYER
+            # nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
+            # nn.ReLU(),
+            # nn.MaxPool1d(kernel_size=2),
+            # # # 06/10: testing another set of conv1d, relu, maxpool
+            # nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
+            # nn.ReLU(),
+            # nn.MaxPool1d(kernel_size=2), # 06/07: TESTING ONE MORE POOLING LAYER
+            # nn.MaxPool1d(kernel_size=2), # 06/10: TESTING TWO MORE POOLING LAYERS
         )
         # use a dummy input to dynamically determine the output dimension
         dummy_input = torch.randn(1, 1, input_size)  # batch size of 1, 1 channel, and initial input size
@@ -72,7 +79,7 @@ class EncoderCNN1D(nn.Module):
         return x
     
 class SimCLR(nn.Module):
-    def __init__(self, encoder, embedding_dim=256):
+    def __init__(self, encoder, embedding_dim): #USED TO BE 256 EMBEDDING DIM
         super(SimCLR, self).__init__()
         self.encoder = encoder
         self.projector = nn.Sequential(
@@ -87,6 +94,9 @@ class SimCLR(nn.Module):
 
         z_i = self.projector(h_i.view(h_i.size(0), -1))
         z_j = self.projector(h_j.view(h_j.size(0), -1))
+
+        print('z_i shape', z_i.shape)
+        print('z_j shape', z_j.shape)
 
         return h_i, h_j, z_i, z_j
 
@@ -121,16 +131,17 @@ def train_model(model, dataloader, optimizer, epochs):
 if __name__ == '__main__':
     wandb.init(project="lightcurve-to-spectra-ml-self-supervised", entity="rczhang")
     power, labels, freq = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOBAstars_all.h5')
-    smoothed_power = moving_average(power, 10)
-    print('length of stars', len(smoothed_power))
+    # smoothed_power = moving_average(power, 10)
+    smoothed_power = power
+    scaled_smoothed_power = apply_min_max_scaling(smoothed_power).tolist()
     # apply stochastic data augmentations to each list of powers, multiplicative noise uniformly distributed between 0.99 and 1.01x the data
-    power_dataset = PowerDataset(smoothed_power, transform=add_noise)
+    power_dataset = PowerDataset(scaled_smoothed_power, transform=add_noise)
     dataloader = DataLoader(power_dataset, batch_size=500, shuffle=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     num_channels = 32
     input_size = len(power[0])
     encoder = EncoderCNN1D(num_channels=num_channels, input_size=input_size)
     model = SimCLR(encoder=encoder, embedding_dim=256).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-    train_model(model, dataloader, optimizer, 50)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3)
+    train_model(model, dataloader, optimizer, 500)
     wandb.finish()

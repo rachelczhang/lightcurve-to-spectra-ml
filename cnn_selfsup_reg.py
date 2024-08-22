@@ -61,22 +61,23 @@ if __name__ == '__main__':
 	device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 	### manually modify size ###
 	##### load in pretrained encoder #####
-	pretrained_model = self_supervised.SimCLR(self_supervised.EncoderCNN1D(num_channels, input_size), 3)
+	pretrained_model = self_supervised.SimCLR(self_supervised.EncoderCNN1D(num_channels, input_size), 256)
 	# # # load in 3 convolutional layers model
 	# # pretrained_model.load_state_dict(torch.load('best_selfsup40_3conv.pth', map_location=device))
 	# load in 2 convolutional layers model
-	pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
+	# pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
+	pretrained_model.load_state_dict(torch.load('best_selfsup44_embdim3.pth', map_location=device))
 	pretrained_model.to(device)
-	# model = cnn_selfsup.CNN1DFrozenConv(pretrained_model.encoder, 3, input_size, device).to(device)
+	model = cnn_selfsup.CNN1DFrozenConv(pretrained_model.encoder, 3, input_size, device).to(device)
 
 	##### test 08/02: use the best regression model conv_layers to be the pretrained_model.encoder #####
-	non_pretrained_model = run_cnn.CNN1D(num_channels, 3, input_size)
-	non_pretrained_model.load_state_dict(torch.load('best_reg_glad_moon_27.pth', map_location=device))
-	non_pretrained_model.to(device)
+	# non_pretrained_model = run_cnn.CNN1D(num_channels, 3, input_size)
+	# non_pretrained_model.load_state_dict(torch.load('best_reg_glad_moon_27.pth', map_location=device))
+	# non_pretrained_model.to(device)
 	# model = cnn_selfsup.CNN1DFrozenConv(non_pretrained_model.conv_layers, 3, input_size, device).to(device)
 
-	##### test 08/06 pretrained encoder + not pretrained projector, run for 1 epoch #####
-	model = CNN1DFrozenEverything(non_pretrained_model.conv_layers, pretrained_model.projector).to(device)
+	#### test 08/06 pretrained encoder + not pretrained projector, run for 1 epoch #####
+	# model = CNN1DFrozenEverything(non_pretrained_model.conv_layers, pretrained_model.projector).to(device)
 	
 	# loss function 
 	best_loss = float('inf')
@@ -87,8 +88,7 @@ if __name__ == '__main__':
 	optimizer = torch.optim.Adam(model.fc_layers.parameters(), lr=learning_rate)
 	patience = 200 # number of epochs to wait for improvement before stopping
 	patience_counter = 0
-	# epochs = 10000
-	epochs = 1
+	epochs = 10000
 	scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
 	for t in range(epochs):
 		print(f"Epoch {t+1}\n-------------------------------")
