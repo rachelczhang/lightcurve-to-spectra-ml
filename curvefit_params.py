@@ -9,7 +9,7 @@ from run_mlp import load_data
 import wandb
 import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
-
+from data import read_hdf5_data
 torch.manual_seed(42)
 np.random.seed(42)
 
@@ -42,13 +42,19 @@ def power_spectrum_model(nu, alpha0, nu_char, gamma, Cw):
 #             return False
 
 if __name__ == '__main__':
-    benchmark_df = pd.DataFrame(columns=['alpha0', 'nu_char', 'gamma', 'Cw', 'labels'])
-    power, logpower, labels, freq = load_data('tessOBAstars.h5')
+    # # classification
+    # benchmark_df = pd.DataFrame(columns=['alpha0', 'nu_char', 'gamma', 'Cw', 'labels'])
+    # regression
+    benchmark_df = pd.DataFrame(columns=['alpha0', 'nu_char', 'gamma', 'Cw', 'Teff', 'logg', 'Msp'])
+    # # classification
+    # power, logpower, labels, freq = load_data('tessOBAstars.h5')
+    # regression
+    power, Teff, logg, Msp, freq, tic_id = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOregression_magunits.h5')  
     print('power', power)
     print('freq', freq)
     for i in range(len(power)):
         print('i', i)
-        print('label', labels[i])
+        # print('label', labels[i])
         params, params_covariance = curve_fit(power_spectrum_model, freq[i], power[i], p0=[0.0003, 2, 3, 2e-5], bounds=([1e-7, 5e-3, 0, 0], [0.01, 12, 13, 0.1]))
         print('params', params)
         alpha0, nu_char, gamma, Cw = params
@@ -59,18 +65,24 @@ if __name__ == '__main__':
         print(f"Cw (Constant offset): {Cw}")
         # if gamma <= 4.5:
         benchmark_df = benchmark_df._append({'alpha0': alpha0, 'nu_char': nu_char, 'gamma': gamma, 'Cw': Cw}, ignore_index=True)
-    benchmark_df['labels'] = labels
+    # # classification
+    # benchmark_df['labels'] = labels
+    # regression
+    benchmark_df['Teff'] = Teff
+    benchmark_df['logg'] = logg
+    benchmark_df['Msp'] = Msp
     print('benchmark df', benchmark_df)
-    plt.figure(figsize=(10, 6))
-    plt.scatter(freq[i], power[i], label='Data')
-    plt.plot(freq[i], power_spectrum_model(freq[i], *params), label='Fitted function', color='red')
-    plt.xlabel('Frequency (nu)')
-    plt.ylabel('Power Spectrum (alpha_nu)')
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.legend()
-    plt.savefig('curve_fitting.png')
-    plt.clf()
+    
+    # plt.figure(figsize=(10, 6))
+    # plt.scatter(freq[i], power[i], label='Data')
+    # plt.plot(freq[i], power_spectrum_model(freq[i], *params), label='Fitted function', color='red')
+    # plt.xlabel('Frequency (nu)')
+    # plt.ylabel('Power Spectrum (alpha_nu)')
+    # plt.xscale('log')
+    # plt.yscale('log')
+    # plt.legend()
+    # plt.savefig('curve_fitting.png')
+    # plt.clf()
 
         # if find_oscillation_modes(power[i]):
         #     params, params_covariance = curve_fit(power_spectrum_model, freq[i], power[i], p0=[0.0003, 2, 3, 2e-5], bounds=([1e-7, 5e-3, 0, 0], [0.01, 12, 13, 0.1]))
@@ -96,4 +108,7 @@ if __name__ == '__main__':
         #         plt.savefig('curve_fitting.png')
         #         plt.clf()
     
-    benchmark_df.to_hdf('curvefitparams.h5', key='df', mode='w')
+    # # classification
+    # benchmark_df.to_hdf('curvefitparams.h5', key='df', mode='w')
+    # regression
+    benchmark_df.to_hdf('curvefitparams_reg.h5', key='df', mode='w')
