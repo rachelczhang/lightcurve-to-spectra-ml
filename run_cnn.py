@@ -34,6 +34,45 @@ np.random.seed(42)
 #     y_undersampled = y[indices_to_keep]
 #     return X_undersampled, y_undersampled
 
+
+############## THIS IS THE BEST WORKING CNN MODEL ################
+# class CNN1D(nn.Module):
+#     def __init__(self, num_channels, output_size, input_size):
+#         """
+#         num_channels: # of output channels for first convolutional layer
+#         output_size: # of classes for the final output layer
+#         """
+#         super().__init__()
+#         self.conv_layers = nn.Sequential( # container of layers that processes convolutional part of network
+#             nn.Conv1d(1, num_channels, kernel_size=5, padding=2),  # Convolutional layer with 1 input channel, num_channels output channels, 5 length kernel, and 2 elements of padding on either side
+#             nn.ReLU(),
+#             nn.MaxPool1d(kernel_size=2), # max pooling layer that reduces dimensionality by taking max value of each 2-element window
+#             nn.Conv1d(num_channels, num_channels * 2, kernel_size=5, padding=2),
+#             # nn.BatchNorm1d(num_channels * 2), 
+#             nn.ReLU(),
+#             nn.MaxPool1d(kernel_size=2),
+#             # nn.MaxPool1d(kernel_size=2), # 06/07: TESTING ONE MORE POOLING LAYER
+#         )
+#         # use a dummy input to dynamically determine the output dimension
+#         dummy_input = torch.randn(1, 1, input_size)  # batch size of 1, 1 channel, and initial input size
+#         dummy_output = self.conv_layers(dummy_input)
+#         self.output_dim = dummy_output.numel() // dummy_output.shape[0]  # total number of features divided by batch size
+#         print('output dim', self.output_dim)
+#         print('hard coded dim', num_channels * 2 * (input_size // 4))
+#         self.flatten = nn.Flatten() # flattens multiple-dimensional tensor convolutional layers output --> 1D tensor
+#         self.fc_layers = nn.Sequential( # container of layers that processes fully connected part of network
+#             nn.Linear(self.output_dim, 128),  # nn.Linear(num_channels * 2 * (input_size // 4), 128), 
+#             nn.ReLU(),
+#             nn.Linear(128, output_size),
+#         )
+    
+#     def forward(self, x):
+#         x = self.conv_layers(x) # process inputs through convolutional layers
+#         x = self.flatten(x) # flattens output of convolutional layers
+#         logits = self.fc_layers(x) # passes flattened output through fully connected layers to produce logits for each class
+#         return logits # raw, unnormalized scores for each class
+
+############### TESTING OTHER CNN MODELS TO COMPARE WITH PRE-TRAINING ################
 class CNN1D(nn.Module):
     def __init__(self, num_channels, output_size, input_size):
         """
@@ -45,10 +84,13 @@ class CNN1D(nn.Module):
             nn.Conv1d(1, num_channels, kernel_size=5, padding=2),  # Convolutional layer with 1 input channel, num_channels output channels, 5 length kernel, and 2 elements of padding on either side
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2), # max pooling layer that reduces dimensionality by taking max value of each 2-element window
-            nn.Conv1d(num_channels, num_channels * 2, kernel_size=5, padding=2),
+            nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
             # nn.BatchNorm1d(num_channels * 2), 
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
+            # nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
+            # nn.ReLU(),
+            # nn.MaxPool1d(kernel_size=2)
             # nn.MaxPool1d(kernel_size=2), # 06/07: TESTING ONE MORE POOLING LAYER
         )
         # use a dummy input to dynamically determine the output dimension
@@ -61,6 +103,8 @@ class CNN1D(nn.Module):
         self.fc_layers = nn.Sequential( # container of layers that processes fully connected part of network
             nn.Linear(self.output_dim, 128),  # nn.Linear(num_channels * 2 * (input_size // 4), 128), 
             nn.ReLU(),
+            # nn.Linear(128, 64),  
+            # nn.ReLU(),
             nn.Linear(128, output_size),
         )
     
