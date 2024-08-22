@@ -216,28 +216,25 @@ def train_loop(dataloader, model, loss_fn, optimizer, epoch, norm_params):
     for X, y in dataloader:
         X, y = X.cuda().unsqueeze(1), y.cuda() #UNSQUEEZE IF CNN
         print('epoch in train loop: ', epoch)
-        print('X: ', X)
-        print('actual: ', y)
-        pred = model(X)
-        print('pred: ', pred)
-        
-        # Teff_pred, logg_pred, Msp_pred = pred[:, 0].cpu() * Teff_std + Teff_mean, pred[:, 1].cpu() * logg_std + logg_mean, pred[:, 2].cpu() * Msp_std + Msp_mean
-        # Teff_actual, logg_actual, Msp_actual = y[:, 0].cpu() * Teff_std + Teff_mean, y[:, 1].cpu() * logg_std + logg_mean, y[:, 2].cpu() * Msp_std + Msp_mean
-        
-        # Teff_pred = Teff_pred.to(dtype=torch.float64)
-        # logg_pred = logg_pred.to(dtype=torch.float64)
-        # Msp_pred = Msp_pred.to(dtype=torch.float64)
-        # Teff_actual = Teff_actual.to(dtype=torch.float64)
-        # logg_actual = logg_actual.to(dtype=torch.float64)
-        # Msp_actual = Msp_actual.to(dtype=torch.float64)
+        pred = model(X)        
+        # apply exponential transformation
+        pred_exp = torch.exp(pred)
 
-        # pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1).cuda()
-        # actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1).cuda()
+        Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0].cpu() * Teff_std + Teff_mean, pred_exp[:, 1].cpu() * logg_std + logg_mean, pred_exp[:, 2].cpu() * Msp_std + Msp_mean
+        Teff_actual, logg_actual, Msp_actual = y[:, 0].cpu() * Teff_std + Teff_mean, y[:, 1].cpu() * logg_std + logg_mean, y[:, 2].cpu() * Msp_std + Msp_mean
+        
+        Teff_pred = Teff_pred.to(dtype=torch.float64)
+        logg_pred = logg_pred.to(dtype=torch.float64)
+        Msp_pred = Msp_pred.to(dtype=torch.float64)
+        Teff_actual = Teff_actual.to(dtype=torch.float64)
+        logg_actual = logg_actual.to(dtype=torch.float64)
+        Msp_actual = Msp_actual.to(dtype=torch.float64)
 
-        # if torch.isnan(pred_logL).any() or torch.isnan(actual_logL).any():
-        #     print("NaN detected before loss computation")
-        # loss = loss_fn(pred_logL, actual_logL)
-        loss = loss_fn(pred, y)
+        pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1).cuda()
+        actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1).cuda()
+
+        loss = loss_fn(pred_logL, actual_logL)
+        # loss = loss_fn(pred, y)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -263,8 +260,20 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
         for X, y in dataloader:
             X, y = X.cuda().unsqueeze(1), y.cuda()
             pred = model(X)
-            total_loss += loss_fn(pred, y).item()
-            all_preds.extend(pred.cpu().numpy())
+            pred_exp = torch.exp(pred)
+            Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0].cpu() * Teff_std + Teff_mean, pred_exp[:, 1].cpu() * logg_std + logg_mean, pred_exp[:, 2].cpu() * Msp_std + Msp_mean
+            Teff_actual, logg_actual, Msp_actual = y[:, 0].cpu() * Teff_std + Teff_mean, y[:, 1].cpu() * logg_std + logg_mean, y[:, 2].cpu() * Msp_std + Msp_mean
+            Teff_pred = Teff_pred.to(dtype=torch.float64)
+            logg_pred = logg_pred.to(dtype=torch.float64)
+            Msp_pred = Msp_pred.to(dtype=torch.float64)
+            Teff_actual = Teff_actual.to(dtype=torch.float64)
+            logg_actual = logg_actual.to(dtype=torch.float64)
+            Msp_actual = Msp_actual.to(dtype=torch.float64)
+            pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1).cuda()
+            actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1).cuda()
+            total_loss += loss_fn(pred_logL, actual_logL)
+            # total_loss += loss_fn(pred, y).item()
+            all_preds.extend(pred_exp.cpu().numpy())
             all_ys.extend(y.cpu().numpy())
     avg_loss = total_loss / len(dataloader)
     wandb.log({"test_loss": avg_loss, "epoch": epoch})
