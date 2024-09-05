@@ -148,16 +148,22 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-from regression import read_data, read_hdf5_data, preprocess_data, create_dataloaders, calculate_lum_from_teff_logg
+from data import read_hdf5_data
+# from regression import read_data, calculate_lum_from_teff_logg
 from curvefit_params import power_spectrum_model
 from scipy.optimize import curve_fit
-import read_tess_data
-from read_tess_data import light_curve_to_power_spectrum
+# import read_tess_data
+# from read_tess_data import light_curve_to_power_spectrum
 import h5py
-from astropy.io import fits
-from sklearn.metrics import mean_squared_error 
+# from astropy.io import fits
+from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.linear_model import Ridge, Lasso, LinearRegression
 import pandas as pd
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 
+torch.manual_seed(42)
 np.random.seed(42)
 
 def read_light_curve(file_path):
@@ -250,59 +256,160 @@ def calculate_lum_from_y(y, c, m):
     x_log = (np.log10(y)-c)/m
     return x_log
 
+def preprocess_data(power, Teff, logg, Msp, freq):
+    Teff = [float(t) for t in Teff]
+    logg = [float(l) for l in logg]
+    Msp = [float(m) for m in Msp]
+
+    power_tensor = torch.tensor(np.array(power.tolist(), dtype=np.float32))
+    
+    # normalized labels tensor for Teff, logg, and Msp
+    labels_tensor = torch.tensor(list(zip(Teff, logg, Msp)), dtype=torch.float32)
+    
+    return power_tensor, labels_tensor
+
+def create_dataloaders(power_tensor, labels_tensor, batch_size):
+    dataset = TensorDataset(power_tensor, labels_tensor)
+    train_size = int(0.8 * len(dataset))
+    test_size = len(dataset) - train_size
+    train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    return train_loader, test_loader, train_dataset, test_dataset
+
+def calculate_lum_from_teff_logg(Teff, logg, Msp):
+    G = 6.67e-8
+    sigma = 5.67e-5
+    g_in_solar_mass = 1.989e33
+    erg_in_solar_lum = 3.826e33
+    g = 10 ** logg
+    Msp_cgs = Msp * g_in_solar_mass
+    Teff_K = Teff * 1000
+    L = 4 * np.pi * G * Msp_cgs * sigma * Teff_K**4 / g
+    L_solar = L / erg_in_solar_lum
+    logL_solar = np.log10(L_solar)
+    return logL_solar
+
+def extract_data_from_dataset(dataset):
+    params_list = []
+    labels_list = []
+    teff = []
+    logL = []
+    alpha0 = []
+    nuchar = []
+    gamma = []
+    Cw = []
+    for feature, label in test_dataset:
+        featurelist = feature.tolist()
+        labels_list.append(label.tolist())
+        teff.append(label[0])
+        logL.append(calculate_lum_from_teff_logg(float(label[0]), float(label[1]), float(label[2])))
+        params, params_covariance = curve_fit(power_spectrum_model, frequencies, featurelist, p0=[0.0003, 5, 3, 2e-5], bounds=([0, 0, 0, 0], [1e8, 1e8, 1e8, 1e8]))
+        params_list.append(params)
+        alpha0.append(params[0])
+        nuchar.append(params[1])
+        gamma.append(params[2])
+        Cw.append(params[3])
+    return np.array(params_list), np.array(labels_list), np.array(teff), np.array(logL), np.array(alpha0), np.array(nuchar), np.array(gamma), np.array(Cw)
+
 power, Teff, logg, Msp, frequencies, tic_id = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOregression_magunits.h5')  
 power_tensor, labels_tensor = preprocess_data(power, Teff, logg, Msp, frequencies)
 batch_size = 32
-train_loader, test_loader, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
+train_loader, test_loader, train_dataset, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
 
-power_list = []
-actual_lum_list = []
+train_params, train_labels, train_teff, train_logL, train_alpha0, train_nuchar, train_gamma, train_Cw = extract_data_from_dataset(train_dataset)
+test_params, test_labels, test_teff, test_logL, test_alpha0, test_nuchar, test_gamma, test_Cw = extract_data_from_dataset(test_dataset)
 
-for feature, label in test_dataset:
-    power_list.append(feature.tolist())
-    label_list = label.tolist()
-    actual_lum_list.append(calculate_lum_from_teff_logg(label_list[0], label_list[1], label_list[2]))
-# print('power_list', power_list[0])
-print('actual_lum_list', actual_lum_list)
-# print('frequencies', frequencies)
+# apply linear regression
+# Teff and nuchar
+reg_teff_nuchar = LinearRegression()
+reg_teff_nuchar.fit(train_nuchar.reshape(-1, 1), train_teff)
+teff_pred = reg_teff_nuchar.predict(test_nuchar.reshape(-1, 1))
+print("Teff vs. nuchar R^2 Score:", r2_score(test_teff, teff_pred))
+print("Teff vs. nuchar MSE:", mean_squared_error(test_teff, teff_pred))
+print('test teff', test_teff)
+print('teff pred', teff_pred)
 
-pred_lum_list = []
-c, m = make_linear_regression('lum_vs_nu.dat')
-i = 0
-for p in power_list:
-    if i != 9: # 10th one is an outlier curve fit
-        params, params_covariance = curve_fit(power_spectrum_model, frequencies, p, p0=[0.0003, 5, 3, 2e-5], bounds=([0, 0, 0, 0], [1e8, 1e8, 1e8, 1e8]))
-        print('params', params)
-        alpha0, nu_char, gamma, Cw = params
-        print("Fitted parameters:")
-        print(f"alpha0 (Amplitude): {alpha0}")
-        print(f"nu_char (Characteristic Frequency): {nu_char}")
-        print(f"gamma (Shape factor): {gamma}")
-        print(f"Cw (Constant offset): {Cw}")
-        # pred_lum = calculate_lum_from_y(alpha0*10**6, c, m)
-        pred_lum = calculate_lum_from_y(nu_char, c, m)
-        pred_lum_list.append(pred_lum)
-    elif i == 9:
-        plt.scatter(frequencies, p)
-        plt.plot(frequencies, power_spectrum_model(frequencies, *params), label='Fitted function', color='red')
-        plt.xlabel('Frequency')
-        plt.ylabel('Amplitude Power')
-        plt.yscale('log')
-        plt.xscale('log')
-        plt.savefig('power_mag_units.png')
-        plt.close()
-    i += 1
+# logL and alpha0
+reg_logL_alpha0 = LinearRegression()
+reg_logL_alpha0.fit(train_alpha0.reshape(-1, 1), train_logL)
+logL_pred = reg_logL_alpha0.predict(test_alpha0.reshape(-1, 1))
+print("logL vs. alpha0 R^2 Score:", r2_score(test_logL, logL_pred))
+print("logL vs. alpha0 MSE:", mean_squared_error(test_logL, logL_pred))
+print('test logL', test_logL)
+print('logL pred', logL_pred)
 
-actual_lum_list.pop(9)
-print('pred lum list', pred_lum_list)
-print('MSE', mean_squared_error(actual_lum_list, pred_lum_list))
+# apply lasso and ridge regression to training dataset
+ridge = Ridge(alpha=1.0)
+ridge.fit(train_params, train_labels)
+y_pred_ridge = ridge.predict(test_params)
+print("Ridge Regression:", r2_score(test_labels, y_pred_ridge))
+# print('test labels', test_labels)
+# print('y pred ridge', y_pred_ridge)
+teff_pred_ridge = []
+logL_pred_ridge = []
+for pred in y_pred_ridge:
+    teff_pred_ridge.append(pred[0])
+    logL_pred_ridge.append(calculate_lum_from_teff_logg(pred[0], pred[1], pred[2]))
+print('teff pred ridge', teff_pred_ridge)
+print('logL pred ridge', logL_pred_ridge)
 
-plt.figure(figsize=(10, 6))
-plt.scatter(actual_lum_list, pred_lum_list, alpha=0.3)
-plt.xlabel('Actual logL')
-plt.ylabel('Predicted logL')
-plt.title('Benchmark Predicted vs Actual Spectroscopic logL')
-plt.plot([min(actual_lum_list), max(actual_lum_list)], [min(actual_lum_list), max(actual_lum_list)], 'r')
-plt.grid(True)
-plt.savefig("benchmark_pred_vs_act_logL.png")
-plt.close()
+lasso = Lasso(alpha=0.1)
+lasso.fit(train_params, train_labels)
+y_pred_lasso = lasso.predict(test_params)
+print("Lasso Regression:", r2_score(test_labels, y_pred_lasso))
+# print('test labels', test_labels)
+# print('y pred lasso', y_pred_lasso)
+
+
+# # using linear correlation from Anders et al. 2023 as reference to make predictions on test dataset
+# power_list = []
+# actual_lum_list = []
+# for feature, label in test_dataset:
+#     power_list.append(feature.tolist())
+#     label_list = label.tolist()
+#     actual_lum_list.append(calculate_lum_from_teff_logg(label_list[0], label_list[1], label_list[2]))
+# # print('power_list', power_list[0])
+# print('actual_lum_list', actual_lum_list)
+# # print('frequencies', frequencies)
+
+# pred_lum_list = []
+# c, m = make_linear_regression('lum_vs_nu.dat')
+# i = 0
+# for p in power_list:
+#     if i != 9: # 10th one is an outlier curve fit
+#         params, params_covariance = curve_fit(power_spectrum_model, frequencies, p, p0=[0.0003, 5, 3, 2e-5], bounds=([0, 0, 0, 0], [1e8, 1e8, 1e8, 1e8]))
+#         print('params', params)
+#         alpha0, nu_char, gamma, Cw = params
+#         print("Fitted parameters:")
+#         print(f"alpha0 (Amplitude): {alpha0}")
+#         print(f"nu_char (Characteristic Frequency): {nu_char}")
+#         print(f"gamma (Shape factor): {gamma}")
+#         print(f"Cw (Constant offset): {Cw}")
+#         # pred_lum = calculate_lum_from_y(alpha0*10**6, c, m)
+#         pred_lum = calculate_lum_from_y(nu_char, c, m)
+#         pred_lum_list.append(pred_lum)
+#     elif i == 9:
+#         plt.scatter(frequencies, p)
+#         plt.plot(frequencies, power_spectrum_model(frequencies, *params), label='Fitted function', color='red')
+#         plt.xlabel('Frequency')
+#         plt.ylabel('Amplitude Power')
+#         plt.yscale('log')
+#         plt.xscale('log')
+#         plt.savefig('power_mag_units.png')
+#         plt.close()
+#     i += 1
+
+# actual_lum_list.pop(9)
+# print('pred lum list', pred_lum_list)
+# print('MSE', mean_squared_error(actual_lum_list, pred_lum_list))
+
+# plt.figure(figsize=(10, 6))
+# plt.scatter(actual_lum_list, pred_lum_list, alpha=0.3)
+# plt.xlabel('Actual logL')
+# plt.ylabel('Predicted logL')
+# plt.title('Benchmark Predicted vs Actual Spectroscopic logL')
+# plt.plot([min(actual_lum_list), max(actual_lum_list)], [min(actual_lum_list), max(actual_lum_list)], 'r')
+# plt.grid(True)
+# plt.savefig("benchmark_pred_vs_act_logL.png")
+# plt.close()
