@@ -39,6 +39,11 @@ def load_data(filename):
     Msp = data['Msp']
     return alpha0, nu_char, gamma, Cw, Teff, logg, Msp
 
+def normalize_data(data):
+    mean = np.mean(data)
+    std = np.std(data)
+    return (data - mean) / std, mean, std
+
 def preprocess_data(alpha0, nu_char, gamma, Cw, Teff, logg, Msp):
     """ convert data to tensors and apply normalization."""
     alpha0 = torch.tensor(alpha0.values, dtype=torch.float32)
@@ -57,10 +62,13 @@ def preprocess_data(alpha0, nu_char, gamma, Cw, Teff, logg, Msp):
     Teff = [float(t) for t in Teff]
     logg = [float(l) for l in logg]
     Msp = [float(m) for m in Msp]
+    Teff_norm, Teff_mean, Teff_std = normalize_data(np.array(Teff))
+    logg_norm, logg_mean, logg_std = normalize_data(np.array(logg))
+    Msp_norm, Msp_mean, Msp_std = normalize_data(np.array(Msp))
 
-    labels_tensor = torch.tensor(list(zip(Teff, logg, Msp)), dtype=torch.float32)
+    labels_tensor = torch.tensor(list(zip(Teff_norm, logg_norm, Msp_norm)), dtype=torch.float32)
 
-    return data_normalized, labels_tensor
+    return data_normalized, labels_tensor, (Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std)
 
 def create_dataloaders(power_tensor, labels_tensor, batch_size):
     dataset = TensorDataset(power_tensor, labels_tensor)
@@ -88,11 +96,19 @@ def train_loop(dataloader, model, loss_fn, optimizer, epoch):
     wandb.log({"train_loss": avg_loss, "epoch": epoch})
     print(f"Train loss: {avg_loss:>7f}")
 
-def test_loop(dataloader, model, loss_fn, epoch):
+def denormalize_data(norm_data, means, stds):
+    denorm_data = []
+    for data in norm_data:
+        denorm_sublist = [(value * std + mean) for value, mean, std in zip(data, means, stds)]
+        denorm_data.append(denorm_sublist)
+    return np.array(denorm_data)
+
+def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     model.eval()
     total_loss = 0
     all_preds = []
     all_ys = []
+    Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std = norm_params
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.cuda(), y.cuda()
@@ -106,6 +122,9 @@ def test_loop(dataloader, model, loss_fn, epoch):
 
     all_preds = np.array(all_preds)
     all_ys = np.array(all_ys)
+
+    all_preds = denormalize_data(all_preds, [Teff_mean, logg_mean, Msp_mean], [Teff_std, logg_std, Msp_std])
+    all_ys = denormalize_data(all_ys, [Teff_mean, logg_mean, Msp_mean], [Teff_std, logg_std, Msp_std])
 
     plt.figure(figsize=(10, 6))
     plt.scatter(all_ys[:, 0], all_preds[:, 0], alpha=0.3)
@@ -146,6 +165,8 @@ def test_loop(dataloader, model, loss_fn, epoch):
     print('actual logL', actual_logL)
     pred_logL = calculate_lum_from_teff_logg(np.array(all_preds[:, 0], dtype=np.float64), np.array(all_preds[:, 1], dtype=np.float64), np.array(all_preds[:, 2], dtype=np.float64))
     print('pred logL', pred_logL)
+    print('actual Teff', all_ys[:, 0])
+    print('pred Teff', all_preds[:, 0])
     plt.figure(figsize=(10, 6))
     plt.scatter(actual_logL, pred_logL, alpha=0.3)
     plt.xlabel('Actual logL')
@@ -184,7 +205,7 @@ if __name__ == '__main__':
     alpha0, nu_char, gamma, Cw, Teff, logg, Msp = load_data('curvefitparams_reg.h5')
     epochs = 10000
     batch_size = 32
-    data_normalized, labels_tensor = preprocess_data(alpha0, nu_char, gamma, Cw, Teff, logg, Msp)
+    data_normalized, labels_tensor, normalization_params = preprocess_data(alpha0, nu_char, gamma, Cw, Teff, logg, Msp)
     print('data normalized', data_normalized)
     train_loader, test_loader, test_dataset = create_dataloaders(data_normalized, labels_tensor, batch_size)
     loss_fn = nn.MSELoss().cuda()
@@ -193,7 +214,7 @@ if __name__ == '__main__':
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
         train_loop(train_loader, model, loss_fn, optimizer, t)
-        current_loss, all_ys, all_preds = test_loop(test_loader, model, loss_fn, t)
+        current_loss, all_ys, all_preds = test_loop(test_loader, model, loss_fn, t, normalization_params)
         if current_loss < best_loss:
             best_loss = current_loss
             patience_counter = 0
