@@ -43,7 +43,7 @@ if __name__ == '__main__':
     power, logpower, labels, freq = load_data('tessOBAstars.h5')
     power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq)
     batch_size = 64
-    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size, augment_data=True, additive=False)
+    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size, augment_data=False, additive=False)
     # create model
     num_channels = 32
     input_size = len(power.iloc[0]) 
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ### manually modify size ###
     pretrained_model = self_supervised.SimCLR(self_supervised.EncoderCNN1D(num_channels, input_size), 256)
-    pretrained_model.load_state_dict(torch.load('best_selfsup40.pth', map_location=device))
+    pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
     pretrained_model.to(device)
     model = CNN1DFrozenConv(pretrained_model.encoder, len(label_to_int), input_size, device).to(device)
     # loss function 

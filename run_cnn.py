@@ -206,7 +206,7 @@ if __name__ == '__main__':
     num_channels = 32  # number of channels in first conv layer
     power_tensor, labels_tensor, label_to_int = preprocess_data(power, logpower, labels, freq)
     # power_tensor_undersampled, labels_tensor_undersampled = undersample_data(power_tensor, labels_tensor)
-    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size, augment_data=True, additive=False)
+    train_dataloader, test_dataloader, class_weights = createdataloaders(power_tensor, labels_tensor, batch_size, augment_data=False, additive=False)
     input_size = len(power.iloc[0]) 
     model = CNN1D(num_channels, len(label_to_int), input_size).cuda()
     loss_fn = nn.CrossEntropyLoss(weight=class_weights).cuda()

@@ -50,8 +50,8 @@ if __name__ == '__main__':
 	wandb.init(project="lightcurve-to-spectra-ml-self-supervised-reg", entity="rczhang")
 	# data preprocessing steps
 	power, Teff, logg, Msp, frequencies, tic_id = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOregression.h5')  
-	power_tensor, labels_tensor = preprocess_data(power, Teff, logg, Msp, frequencies)
-	learning_rate = 1e-5
+	power_tensor, labels_tensor, norm_params = preprocess_data(power, Teff, logg, Msp, frequencies)
+	learning_rate = 1e-3
 	batch_size = 32
 	train_dataloader, test_dataloader, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
 	num_channels = 32
@@ -65,8 +65,8 @@ if __name__ == '__main__':
 	# # # load in 3 convolutional layers model
 	# # pretrained_model.load_state_dict(torch.load('best_selfsup40_3conv.pth', map_location=device))
 	# load in 2 convolutional layers model
-	# pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
-	pretrained_model.load_state_dict(torch.load('best_selfsup44_embdim3.pth', map_location=device))
+	pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
+	# pretrained_model.load_state_dict(torch.load('best_selfsup44_embdim3.pth', map_location=device))
 	pretrained_model.to(device)
 	model = cnn_selfsup.CNN1DFrozenConv(pretrained_model.encoder, 3, input_size, device).to(device)
 
@@ -82,8 +82,8 @@ if __name__ == '__main__':
 	# loss function 
 	best_loss = float('inf')
 	loss_fn = nn.MSELoss().to(device)
-	t = -1
-	current_loss = test_loop(test_dataloader, model, loss_fn, t)
+	# t = -1
+	# current_loss = test_loop(test_dataloader, model, loss_fn, t, norm_params)
 	# optimizer only updates parameters of non-convolutional layers
 	optimizer = torch.optim.Adam(model.fc_layers.parameters(), lr=learning_rate)
 	patience = 200 # number of epochs to wait for improvement before stopping
@@ -92,8 +92,8 @@ if __name__ == '__main__':
 	scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
 	for t in range(epochs):
 		print(f"Epoch {t+1}\n-------------------------------")
-		train_loop(train_dataloader, model, loss_fn, optimizer, t)
-		current_loss = test_loop(test_dataloader, model, loss_fn, t)
+		train_loop(train_dataloader, model, loss_fn, optimizer, t, norm_params)
+		current_loss = test_loop(test_dataloader, model, loss_fn, t, norm_params)
 		scheduler.step(current_loss)
 		if current_loss < best_loss:
 			best_loss = current_loss
