@@ -2,12 +2,13 @@
   
 #SBATCH -J runcnn 
 #SBATCH -p gpu                
-#SBATCH -t 01:00:00             
+#SBATCH -t 03:00:00             
 #SBATCH -N 1   
 #SBATCH --gpus=1
 #SBATCH --mem=50G                 
 #SBATCH --output=runcnn.out
 
+module load modules/2.2
 module load python
 module load gcc
 module load cuda
