@@ -82,6 +82,41 @@ def save_power_freq_info(h5_file_path):
 #     labels_tensor = torch.tensor(list(zip(Teff, logg, Msp)), dtype=torch.float32)
 #     return power_tensor, labels_tensor
 
+def calculate_lum_from_teff_logg(Teff, logg, Msp, tensor):
+    if tensor == False:
+        G = 6.67e-8
+        sigma = 5.67e-5
+        g_in_solar_mass = 1.989e33
+        erg_in_solar_lum = 3.826e33
+        g = 10 ** logg
+        # if np.isinf(g).any():
+        #     g[np.isinf(g)] = 1e6
+        Msp_cgs = Msp * g_in_solar_mass
+        Teff_K = Teff * 1000
+        L = 4 * np.pi * G * Msp_cgs * sigma * Teff_K**4 / g
+        L_solar = L / erg_in_solar_lum
+        logL_solar = np.log10(L_solar)
+    else:
+        G = torch.tensor(6.67e-8, dtype=torch.float64)
+        sigma = torch.tensor(5.67e-5, dtype=torch.float64)
+        g_in_solar_mass = torch.tensor(1.989e33, dtype=torch.float64)
+        erg_in_solar_lum = torch.tensor(3.826e33, dtype=torch.float64)
+        g = 10 ** logg
+        print('g', g)
+        # if torch.isinf(g).any():
+        #     g[torch.isinf(g)] = torch.tensor(1e6, dtype=torch.float64)
+        Msp_cgs = Msp * g_in_solar_mass
+        print('Msp cgs', Msp_cgs)
+        Teff_K = Teff * 1000
+        print('Teff K', Teff_K)
+        L = 4 * torch.pi * G * Msp_cgs * sigma * Teff_K**4 / g
+        print('L', L)
+        L_solar = L / erg_in_solar_lum
+        print('L solar', L_solar)
+        logL_solar = torch.log10(L_solar)
+        print('logL solar', logL_solar)
+    return logL_solar
+
 def normalize_data(data):
     mean = np.mean(data)
     std = np.std(data)
@@ -96,6 +131,9 @@ def preprocess_data(power, Teff, logg, Msp, freq):
     Teff_norm, Teff_mean, Teff_std = normalize_data(np.array(Teff))
     logg_norm, logg_mean, logg_std = normalize_data(np.array(logg))
     Msp_norm, Msp_mean, Msp_std = normalize_data(np.array(Msp))
+    logL = calculate_lum_from_teff_logg(np.array(Teff), np.array(logg), np.array(Msp), False)
+    logL_norm, logL_mean, logL_std = normalize_data(logL)
+
     # else:
     #     Teff_mean, Teff_std = torch.tensor(Teff_mean, dtype=torch.float64), torch.tensor(Teff_std, dtype=torch.float64)
     #     logg_mean, logg_std = torch.tensor(logg_mean, dtype=torch.float64), torch.tensor(logg_std, dtype=torch.float64)
@@ -109,7 +147,7 @@ def preprocess_data(power, Teff, logg, Msp, freq):
     # normalized labels tensor for Teff, logg, and Msp
     labels_tensor = torch.tensor(list(zip(Teff_norm, logg_norm, Msp_norm)), dtype=torch.float32)
     
-    return power_tensor, labels_tensor, (Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std)
+    return power_tensor, labels_tensor, (Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std, logL_mean, logL_std)
 
 def create_dataloaders(power_tensor, labels_tensor, batch_size):
     dataset = TensorDataset(power_tensor, labels_tensor)
@@ -118,7 +156,7 @@ def create_dataloaders(power_tensor, labels_tensor, batch_size):
     train_dataset, test_dataset = torch.utils.data.random_split(dataset, [train_size, test_size])
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-    return train_loader, test_loader, test_dataset
+    return train_loader, test_loader, train_dataset, test_dataset
 
 class CNN1D(nn.Module):
     def __init__(self, num_channels, output_size, input_size):
@@ -161,37 +199,6 @@ class CNN1D(nn.Module):
         logits = self.fc_layers(x) # passes flattened output through fully connected layers to produce logits for each class
         return logits # raw, unnormalized scores for each class
 
-def calculate_lum_from_teff_logg(Teff, logg, Msp, tensor):
-    if tensor == False:
-        G = 6.67e-8
-        sigma = 5.67e-5
-        g_in_solar_mass = 1.989e33
-        erg_in_solar_lum = 3.826e33
-        g = 10 ** logg
-        Msp_cgs = Msp * g_in_solar_mass
-        Teff_K = Teff * 1000
-        L = 4 * np.pi * G * Msp_cgs * sigma * Teff_K**4 / g
-        L_solar = L / erg_in_solar_lum
-        logL_solar = np.log10(L_solar)
-    else:
-        G = torch.tensor(6.67e-8, dtype=torch.float64)
-        sigma = torch.tensor(5.67e-5, dtype=torch.float64)
-        g_in_solar_mass = torch.tensor(1.989e33, dtype=torch.float64)
-        erg_in_solar_lum = torch.tensor(3.826e33, dtype=torch.float64)
-        g = 10 ** logg
-        print('g', g)
-        Msp_cgs = Msp * g_in_solar_mass
-        print('Msp cgs', Msp_cgs)
-        Teff_K = Teff * 1000
-        print('Teff K', Teff_K)
-        L = 4 * torch.pi * G * Msp_cgs * sigma * Teff_K**4 / g
-        print('L', L)
-        L_solar = L / erg_in_solar_lum
-        print('L solar', L_solar)
-        logL_solar = torch.log10(L_solar)
-        print('logL solar', logL_solar)
-    return logL_solar
-
 class MLP(nn.Module):
     def __init__(self, input_size, output_size):
         super().__init__()
@@ -212,33 +219,48 @@ class MLP(nn.Module):
 def train_loop(dataloader, model, loss_fn, optimizer, epoch, norm_params):
     model.train()
     total_loss = 0
-    Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std = norm_params
+    Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std, logL_mean, logL_std = norm_params
+    # sigmoid = nn.Sigmoid() 
     for X, y in dataloader:
         X, y = X.cuda().unsqueeze(1), y.cuda() #UNSQUEEZE IF CNN
-        print('epoch in train loop: ', epoch)
         pred = model(X)        
         # apply exponential transformation
-        pred_exp = torch.exp(pred)
-
-        Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0].cpu() * Teff_std + Teff_mean, pred_exp[:, 1].cpu() * logg_std + logg_mean, pred_exp[:, 2].cpu() * Msp_std + Msp_mean
-        Teff_actual, logg_actual, Msp_actual = y[:, 0].cpu() * Teff_std + Teff_mean, y[:, 1].cpu() * logg_std + logg_mean, y[:, 2].cpu() * Msp_std + Msp_mean
+        pred_exp = torch.exp(pred).cuda()
+        Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0] * Teff_std + Teff_mean, pred_exp[:, 1] * logg_std + logg_mean, pred_exp[:, 2] * Msp_std + Msp_mean
         
-        Teff_pred = Teff_pred.to(dtype=torch.float64)
-        logg_pred = logg_pred.to(dtype=torch.float64)
-        Msp_pred = Msp_pred.to(dtype=torch.float64)
-        Teff_actual = Teff_actual.to(dtype=torch.float64)
-        logg_actual = logg_actual.to(dtype=torch.float64)
-        Msp_actual = Msp_actual.to(dtype=torch.float64)
+        # # apply sigmoid transformation
+        # print('train loop pred', pred)
+        # pred_sigmoid = sigmoid(pred)
+        # print("train loop pred sigmoid", pred_sigmoid)
+        # Teff_pred, logg_pred, Msp_pred = pred_sigmoid[:, 0] * Teff_std + Teff_mean, pred_sigmoid[:, 1] * logg_std + logg_mean, pred_sigmoid[:, 2] * Msp_std + Msp_mean
+        Teff_actual, logg_actual, Msp_actual = y[:, 0] * Teff_std + Teff_mean, y[:, 1] * logg_std + logg_mean, y[:, 2] * Msp_std + Msp_mean
+        
+        Teff_pred = Teff_pred.to(dtype=torch.float64, device='cuda')
+        logg_pred = logg_pred.to(dtype=torch.float64, device='cuda')
+        Msp_pred = Msp_pred.to(dtype=torch.float64, device='cuda')
+        Teff_actual = Teff_actual.to(dtype=torch.float64, device='cuda')
+        logg_actual = logg_actual.to(dtype=torch.float64, device='cuda')
+        Msp_actual = Msp_actual.to(dtype=torch.float64, device='cuda')
 
-        pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1).cuda()
-        actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1).cuda()
+        pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1)
+        actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1)
 
-        loss = loss_fn(pred_logL, actual_logL)
+        pred_tensor = torch.cat([pred_exp[:, 0].unsqueeze(-1), (pred_logL - logL_mean) / logL_std], dim=1)
+        actual_tensor = torch.cat([y[:, 0].unsqueeze(-1), (actual_logL - logL_mean) / logL_std], dim=1)
+        # pred_tensor = torch.cat([Teff_pred.unsqueeze(-1), pred_logL], dim=1)
+        # actual_tensor = torch.cat([Teff_actual.unsqueeze(-1), actual_logL], dim=1)
+        loss = loss_fn(pred_tensor, actual_tensor)
+        # loss = loss_fn(pred_logL, actual_logL)
         # loss = loss_fn(pred, y)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
+        print('epoch in train loop: ', epoch)
+        print('predicted Teff', Teff_pred)
+        print('actual Teff', Teff_actual)
+        print('predicted logL', pred_logL)
+        print('actual logL', actual_logL)
     avg_loss = total_loss / len(dataloader)
     wandb.log({"train_loss": avg_loss, "epoch": epoch})
     print(f'Training loss: {avg_loss}')
@@ -253,25 +275,32 @@ def denormalize_data(norm_data, means, stds):
 def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     model.eval()
     total_loss = 0
-    Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std = norm_params
+    Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std, logL_mean, logL_std = norm_params
     all_preds = []
     all_ys = []
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.cuda().unsqueeze(1), y.cuda()
             pred = model(X)
-            pred_exp = torch.exp(pred)
-            Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0].cpu() * Teff_std + Teff_mean, pred_exp[:, 1].cpu() * logg_std + logg_mean, pred_exp[:, 2].cpu() * Msp_std + Msp_mean
-            Teff_actual, logg_actual, Msp_actual = y[:, 0].cpu() * Teff_std + Teff_mean, y[:, 1].cpu() * logg_std + logg_mean, y[:, 2].cpu() * Msp_std + Msp_mean
-            Teff_pred = Teff_pred.to(dtype=torch.float64)
-            logg_pred = logg_pred.to(dtype=torch.float64)
-            Msp_pred = Msp_pred.to(dtype=torch.float64)
-            Teff_actual = Teff_actual.to(dtype=torch.float64)
-            logg_actual = logg_actual.to(dtype=torch.float64)
-            Msp_actual = Msp_actual.to(dtype=torch.float64)
-            pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1).cuda()
-            actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1).cuda()
-            total_loss += loss_fn(pred_logL, actual_logL)
+            # exponential transformation
+            pred_exp = torch.exp(pred).cuda()
+            Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0] * Teff_std + Teff_mean, pred_exp[:, 1] * logg_std + logg_mean, pred_exp[:, 2] * Msp_std + Msp_mean
+            Teff_actual, logg_actual, Msp_actual = y[:, 0] * Teff_std + Teff_mean, y[:, 1] * logg_std + logg_mean, y[:, 2] * Msp_std + Msp_mean
+            Teff_pred = Teff_pred.to(dtype=torch.float64, device='cuda')
+            logg_pred = logg_pred.to(dtype=torch.float64, device='cuda')
+            Msp_pred = Msp_pred.to(dtype=torch.float64, device='cuda')
+            Teff_actual = Teff_actual.to(dtype=torch.float64, device='cuda')
+            logg_actual = logg_actual.to(dtype=torch.float64, device='cuda')
+            Msp_actual = Msp_actual.to(dtype=torch.float64, device='cuda')
+            pred_logL = calculate_lum_from_teff_logg(Teff_pred, logg_pred, Msp_pred, True).unsqueeze(-1)
+            actual_logL = calculate_lum_from_teff_logg(Teff_actual, logg_actual, Msp_actual, True).unsqueeze(-1)
+            pred_tensor = torch.cat([pred_exp[:, 0].unsqueeze(-1), (pred_logL - logL_mean) / logL_std], dim=1)
+            actual_tensor = torch.cat([y[:, 0].unsqueeze(-1), (actual_logL - logL_mean) / logL_std], dim=1)
+            # pred_tensor = torch.cat([Teff_pred.unsqueeze(-1), pred_logL], dim=1)
+            # actual_tensor = torch.cat([Teff_actual.unsqueeze(-1), actual_logL], dim=1)
+            print('pred_tensor', pred_tensor)
+            total_loss += loss_fn(pred_tensor, actual_tensor)
+            # total_loss += loss_fn(pred_logL, actual_logL)
             # total_loss += loss_fn(pred, y).item()
             all_preds.extend(pred_exp.cpu().numpy())
             all_ys.extend(y.cpu().numpy())
@@ -335,11 +364,16 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     plt.close()
 
     if ~np.isnan(pred_logL).any():
-        mse = mean_squared_error(actual_logL, pred_logL)
-        print('MSE', mse)
+        print('epoch: ', epoch)
+        mse_logL = mean_squared_error(actual_logL, pred_logL)
+        print('MSE of logL', mse)
+        mse_Teff = mean_squared_error(all_ys[:, 0], all_preds[:, 0])
+        print('MSE of Teff', mse_Teff)
         
-        r2 = r2_score(actual_logL, pred_logL)
-        print('R2 score', r2)
+        r2_logL = r2_score(actual_logL, pred_logL)
+        print('R2 score of logL', r2)
+        r2_Teff = r2_score(all_ys[:, 0], all_preds[:, 0])
+        print('R2 score of Teff', r2_Teff)
 
     # residuals = all_preds[:, 0] - all_ys[:, 0]
     # plt.figure(figsize=(10, 6))
@@ -400,16 +434,17 @@ if __name__ == '__main__':
     learning_rate = 1e-3
     batch_size = 32
     epochs = 10000
-    train_loader, test_loader, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
+    train_loader, test_loader, train_dataset, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
     loss_fn = nn.MSELoss().cuda()
     # model = MLP(input_size=len(power.iloc[0]), output_size=3).cuda()
     num_channels = 32
     input_size = len(power.iloc[0])
     model = CNN1D(num_channels, 3, input_size).cuda()
+    model.load_state_dict(torch.load('best_reg_colorful_serenity_82.pth', map_location='cuda'))
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
     best_loss = float('inf')
-    patience = 200 
+    patience = 300 
     patience_counter = 0
     for t in range(epochs):
         print(f"Epoch {t+1}\n-------------------------------")
