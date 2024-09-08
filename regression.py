@@ -216,23 +216,31 @@ class MLP(nn.Module):
         output = self.linear_relu_stack(x)
         return output
 
+def weighted_mse_loss(pred_tensor, actual_tensor, weights):  
+    se = (pred_tensor - actual_tensor) ** 2
+    print('unweighted mean', se.mean())
+    mse_teff = se[:, 0].mean()
+    mse_logl = se[:, 1].mean()
+    print('MSE of Teff errors: ', mse_teff.item())
+    print('MSE of logL errors: ', mse_logl.item())
+    weighted_se = se * weights
+    weighted_se_mean = weighted_se.mean()
+    print('weighted mean', weighted_se_mean)
+    print('weighted MSE of Teff errors: ', weighted_se[:, 0].mean().item())
+    print('weighted MSE of logL errors: ', weighted_se[:, 1].mean().item())
+    return weighted_se_mean
+
 def train_loop(dataloader, model, loss_fn, optimizer, epoch, norm_params):
     model.train()
     total_loss = 0
     Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std, logL_mean, logL_std = norm_params
-    # sigmoid = nn.Sigmoid() 
+    weights = torch.tensor([2.0, 1.0], dtype=torch.float32, device='cuda')
     for X, y in dataloader:
         X, y = X.cuda().unsqueeze(1), y.cuda() #UNSQUEEZE IF CNN
         pred = model(X)        
         # apply exponential transformation
         pred_exp = torch.exp(pred).cuda()
         Teff_pred, logg_pred, Msp_pred = pred_exp[:, 0] * Teff_std + Teff_mean, pred_exp[:, 1] * logg_std + logg_mean, pred_exp[:, 2] * Msp_std + Msp_mean
-        
-        # # apply sigmoid transformation
-        # print('train loop pred', pred)
-        # pred_sigmoid = sigmoid(pred)
-        # print("train loop pred sigmoid", pred_sigmoid)
-        # Teff_pred, logg_pred, Msp_pred = pred_sigmoid[:, 0] * Teff_std + Teff_mean, pred_sigmoid[:, 1] * logg_std + logg_mean, pred_sigmoid[:, 2] * Msp_std + Msp_mean
         Teff_actual, logg_actual, Msp_actual = y[:, 0] * Teff_std + Teff_mean, y[:, 1] * logg_std + logg_mean, y[:, 2] * Msp_std + Msp_mean
         
         Teff_pred = Teff_pred.to(dtype=torch.float64, device='cuda')
@@ -249,7 +257,8 @@ def train_loop(dataloader, model, loss_fn, optimizer, epoch, norm_params):
         actual_tensor = torch.cat([y[:, 0].unsqueeze(-1), (actual_logL - logL_mean) / logL_std], dim=1)
         # pred_tensor = torch.cat([Teff_pred.unsqueeze(-1), pred_logL], dim=1)
         # actual_tensor = torch.cat([Teff_actual.unsqueeze(-1), actual_logL], dim=1)
-        loss = loss_fn(pred_tensor, actual_tensor)
+        loss = weighted_mse_loss(pred_tensor, actual_tensor, weights)
+        # loss = loss_fn(pred_tensor, actual_tensor)
         # loss = loss_fn(pred_logL, actual_logL)
         # loss = loss_fn(pred, y)
         optimizer.zero_grad()
@@ -278,6 +287,7 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std, logL_mean, logL_std = norm_params
     all_preds = []
     all_ys = []
+    weights = torch.tensor([2.0, 1.0], dtype=torch.float32, device='cuda')
     with torch.no_grad():
         for X, y in dataloader:
             X, y = X.cuda().unsqueeze(1), y.cuda()
@@ -299,7 +309,9 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
             # pred_tensor = torch.cat([Teff_pred.unsqueeze(-1), pred_logL], dim=1)
             # actual_tensor = torch.cat([Teff_actual.unsqueeze(-1), actual_logL], dim=1)
             print('pred_tensor', pred_tensor)
-            total_loss += loss_fn(pred_tensor, actual_tensor)
+            loss = weighted_mse_loss(pred_tensor, actual_tensor, weights)
+            total_loss += loss
+            # total_loss += loss_fn(pred_tensor, actual_tensor)
             # total_loss += loss_fn(pred_logL, actual_logL)
             # total_loss += loss_fn(pred, y).item()
             all_preds.extend(pred_exp.cpu().numpy())
@@ -366,12 +378,12 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     if ~np.isnan(pred_logL).any():
         print('epoch: ', epoch)
         mse_logL = mean_squared_error(actual_logL, pred_logL)
-        print('MSE of logL', mse)
+        print('MSE of logL', mse_logL)
         mse_Teff = mean_squared_error(all_ys[:, 0], all_preds[:, 0])
         print('MSE of Teff', mse_Teff)
         
         r2_logL = r2_score(actual_logL, pred_logL)
-        print('R2 score of logL', r2)
+        print('R2 score of logL', r2_logL)
         r2_Teff = r2_score(all_ys[:, 0], all_preds[:, 0])
         print('R2 score of Teff', r2_Teff)
 
@@ -431,7 +443,6 @@ if __name__ == '__main__':
     print('len teff', len(Teff))
     power_tensor, labels_tensor, normalization_params = preprocess_data(power, Teff, logg, Msp, frequencies)
     print('normalization params', normalization_params)
-    learning_rate = 1e-3
     batch_size = 32
     epochs = 10000
     train_loader, test_loader, train_dataset, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
@@ -440,8 +451,8 @@ if __name__ == '__main__':
     num_channels = 32
     input_size = len(power.iloc[0])
     model = CNN1D(num_channels, 3, input_size).cuda()
-    model.load_state_dict(torch.load('best_reg_colorful_serenity_82.pth', map_location='cuda'))
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    # model.load_state_dict(torch.load('best_reg_colorful_serenity_82.pth', map_location='cuda'))
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
     best_loss = float('inf')
     patience = 300 
