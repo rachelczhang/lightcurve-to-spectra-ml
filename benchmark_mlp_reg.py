@@ -218,7 +218,7 @@ if __name__ == '__main__':
         if current_loss < best_loss:
             best_loss = current_loss
             patience_counter = 0
-            torch.save(model.state_dict(), "best_benchmark_mlp_reg.pth")
+            torch.save(model.state_dict(), f"best_benchmark_reg_{wandb.run.name}.pth")
         else:
             patience_counter += 1
         if patience_counter >= patience:
