@@ -51,9 +51,9 @@ if __name__ == '__main__':
 	# data preprocessing steps
 	power, Teff, logg, Msp, frequencies, tic_id = read_hdf5_data('/mnt/sdceph/users/rzhang/tessOregression.h5')  
 	power_tensor, labels_tensor, norm_params = preprocess_data(power, Teff, logg, Msp, frequencies)
-	learning_rate = 1e-3
+	learning_rate = 1e-5
 	batch_size = 32
-	train_dataloader, test_dataloader, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
+	train_dataloader, test_dataloader, train_dataset, test_dataset = create_dataloaders(power_tensor, labels_tensor, batch_size)
 	num_channels = 32
 	input_size = len(power.iloc[0]) 
 	print('input size in cnn_selfsup_reg', input_size)
@@ -68,8 +68,12 @@ if __name__ == '__main__':
 	pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
 	# pretrained_model.load_state_dict(torch.load('best_selfsup44_embdim3.pth', map_location=device))
 	pretrained_model.to(device)
-	model = cnn_selfsup.CNN1DFrozenConv(pretrained_model.encoder, 3, input_size, device).to(device)
+	model = cnn_selfsup.CNN1DFrozenConv(pretrained_model.encoder, 2, input_size, device).to(device)
 
+	# # keep running the best regression model
+	# model = cnn_selfsup.CNN1DFrozenConv(self_supervised.SimCLR(self_supervised.EncoderCNN1D(num_channels, input_size), 256).encoder.to(device), 2, input_size, device).to(device)
+	# model.load_state_dict(torch.load('best_selfsup_reg_deep-capybara-72.pth', map_location=device))
+	
 	##### test 08/02: use the best regression model conv_layers to be the pretrained_model.encoder #####
 	# non_pretrained_model = run_cnn.CNN1D(num_channels, 3, input_size)
 	# non_pretrained_model.load_state_dict(torch.load('best_reg_glad_moon_27.pth', map_location=device))
@@ -86,7 +90,7 @@ if __name__ == '__main__':
 	# current_loss = test_loop(test_dataloader, model, loss_fn, t, norm_params)
 	# optimizer only updates parameters of non-convolutional layers
 	optimizer = torch.optim.Adam(model.fc_layers.parameters(), lr=learning_rate)
-	patience = 200 # number of epochs to wait for improvement before stopping
+	patience = 300 # number of epochs to wait for improvement before stopping
 	patience_counter = 0
 	epochs = 10000
 	scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
@@ -98,7 +102,7 @@ if __name__ == '__main__':
 		if current_loss < best_loss:
 			best_loss = current_loss
 			patience_counter = 0
-			torch.save(model.state_dict(), "best_cnn_selfsup_reg.pth")
+			torch.save(model.state_dict(), f"best_selfsup_reg_{wandb.run.name}.pth")
 		else:
 			patience_counter += 1
 		if patience_counter >= patience:
