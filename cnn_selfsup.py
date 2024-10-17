@@ -52,7 +52,8 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ### manually modify size ###
     pretrained_model = self_supervised.SimCLR(self_supervised.EncoderCNN1D(num_channels, input_size), 256)
-    pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
+    # pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
+    pretrained_model.load_state_dict(torch.load('best_selfsup46_1conv.pth'))
     pretrained_model.to(device)
     model = CNN1DFrozenConv(pretrained_model.encoder, len(label_to_int), input_size, device).to(device)
     # loss function 

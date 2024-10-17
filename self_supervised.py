@@ -57,9 +57,9 @@ class EncoderCNN1D(nn.Module):
             nn.Conv1d(1, num_channels, kernel_size=5, padding=2),
             nn.ReLU(),
             nn.MaxPool1d(kernel_size=2),
-            nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=2),
+            # nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
+            # nn.ReLU(),
+            # nn.MaxPool1d(kernel_size=2),
             # # # 06/10: testing another set of conv1d, relu, maxpool
             # nn.Conv1d(num_channels, num_channels, kernel_size=5, padding=2),
             # nn.ReLU(),

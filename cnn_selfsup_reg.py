@@ -65,8 +65,10 @@ if __name__ == '__main__':
 	# # # load in 3 convolutional layers model
 	# # pretrained_model.load_state_dict(torch.load('best_selfsup40_3conv.pth', map_location=device))
 	# load in 2 convolutional layers model
-	pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
+	# pretrained_model.load_state_dict(torch.load('best_selfsup42_2conv.pth', map_location=device))
 	# pretrained_model.load_state_dict(torch.load('best_selfsup44_embdim3.pth', map_location=device))
+	# load in 1 conv layer model
+	pretrained_model.load_state_dict(torch.load('best_selfsup46_1conv.pth'))
 	pretrained_model.to(device)
 	model = cnn_selfsup.CNN1DFrozenConv(pretrained_model.encoder, 2, input_size, device).to(device)
 
