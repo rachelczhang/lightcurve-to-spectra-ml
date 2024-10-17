@@ -125,7 +125,7 @@ def train_model(model, dataloader, optimizer, epochs):
         avg_loss = total_loss / len(dataloader)
         wandb.log({"Epoch": epoch+1, "Avg Loss": avg_loss})
         if avg_loss < best_loss:
-            torch.save(model.state_dict(), "best_selfsupervised.pth")
+            torch.save(model.state_dict(), f"best_selfsupervised_{wandb.run.name}.pth")
         print(f'Epoch {epoch+1}, Avg Loss: {avg_loss}')
 
 if __name__ == '__main__':
