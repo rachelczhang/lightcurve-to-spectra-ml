@@ -15,14 +15,13 @@ class MLP(nn.Module):
     def __init__(self, input_size, output_size):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(input_size, 512),
+            nn.Linear(input_size, 512), 
             nn.ReLU(),
             nn.Linear(512, 256),
             nn.ReLU(),
             nn.Linear(256, 128),
             nn.ReLU(),
             nn.Linear(128, output_size),
-            # nn.Softmax()
         )
     def forward(self, x):
         logits = self.linear_relu_stack(x)
@@ -57,34 +56,40 @@ def normalize_data(data):
 #     logL_solar = np.log10(L_solar)
 #     return logL_solar
 
-def calculate_lum_from_teff_logg(Teff, logg, Msp, tensor):
+def calculate_lum_from_teff_logg(Teff, logg, tensor):
     if tensor == False:
-        G = 6.67e-8
-        sigma = 5.67e-5
-        g_in_solar_mass = 1.989e33
-        erg_in_solar_lum = 3.826e33
-        g = 10 ** logg
-        # if np.isinf(g).any():
-        #     g[np.isinf(g)] = 1e6
-        Msp_cgs = Msp * g_in_solar_mass
+        log_L_sun=np.log10((5777)**4.0/(274*100))  # Used for Spectroscopic HRD
         Teff_K = Teff * 1000
-        L = 4 * np.pi * G * Msp_cgs * sigma * Teff_K**4 / g
-        L_solar = L / erg_in_solar_lum
-        logL_solar = np.log10(L_solar)
+        logL_solar = 4*np.log10(Teff_K)-logg-log_L_sun
+        # G = 6.67e-8
+        # sigma = 5.67e-5
+        # g_in_solar_mass = 1.989e33
+        # erg_in_solar_lum = 3.826e33
+        # g = 10 ** logg
+        # # if np.isinf(g).any():
+        # #     g[np.isinf(g)] = 1e6
+        # Msp_cgs = Msp * g_in_solar_mass
+        # Teff_K = Teff * 1000
+        # L = 4 * np.pi * G * Msp_cgs * sigma * Teff_K**4 / g
+        # L_solar = L / erg_in_solar_lum
+        # logL_solar = np.log10(L_solar)
     else:
-        G = torch.tensor(6.67e-8, dtype=torch.float64)
-        sigma = torch.tensor(5.67e-5, dtype=torch.float64)
-        g_in_solar_mass = torch.tensor(1.989e33, dtype=torch.float64)
-        erg_in_solar_lum = torch.tensor(3.826e33, dtype=torch.float64)
-        g = 10 ** logg
-        # print('g', g)
-        # if torch.isinf(g).any():
-        #     g[torch.isinf(g)] = torch.tensor(1e6, dtype=torch.float64)
-        Msp_cgs = Msp * g_in_solar_mass
+        log_L_sun=torch.tensor((np.log10((5777)**4.0/(274*100))), dtype=torch.float64)
         Teff_K = Teff * 1000
-        L = 4 * torch.pi * G * Msp_cgs * sigma * Teff_K**4 / g
-        L_solar = L / erg_in_solar_lum
-        logL_solar = torch.log10(L_solar)
+        logL_solar = 4*torch.log10(Teff_K)-logg-log_L_sun
+        # G = torch.tensor(6.67e-8, dtype=torch.float64)
+        # sigma = torch.tensor(5.67e-5, dtype=torch.float64)
+        # g_in_solar_mass = torch.tensor(1.989e33, dtype=torch.float64)
+        # erg_in_solar_lum = torch.tensor(3.826e33, dtype=torch.float64)
+        # g = 10 ** logg
+        # # print('g', g)
+        # # if torch.isinf(g).any():
+        # #     g[torch.isinf(g)] = torch.tensor(1e6, dtype=torch.float64)
+        # Msp_cgs = Msp * g_in_solar_mass
+        # Teff_K = Teff * 1000
+        # L = 4 * torch.pi * G * Msp_cgs * sigma * Teff_K**4 / g
+        # L_solar = L / erg_in_solar_lum
+        # logL_solar = torch.log10(L_solar)
     return logL_solar
 
 def preprocess_data(alpha0, nu_char, gamma, Cw, Teff, logg, Msp):
@@ -108,11 +113,14 @@ def preprocess_data(alpha0, nu_char, gamma, Cw, Teff, logg, Msp):
     Teff_norm, Teff_mean, Teff_std = normalize_data(np.array(Teff))
     logg_norm, logg_mean, logg_std = normalize_data(np.array(logg))
     Msp_norm, Msp_mean, Msp_std = normalize_data(np.array(Msp))
-    logL = calculate_lum_from_teff_logg(np.array(Teff), np.array(logg), np.array(Msp), False)
+    logL = calculate_lum_from_teff_logg(np.array(Teff), np.array(logg), False)
     logL_norm, logL_mean, logL_std = normalize_data(logL)
 
-    # labels_tensor = torch.tensor(list(zip(Teff_norm, logg_norm, Msp_norm)), dtype=torch.float32)
-    labels_tensor = torch.tensor(list(zip(Teff_norm, logL_norm)), dtype=torch.float32)
+    # # TEST ONLY TEFF
+    # labels_tensor = torch.tensor(list(zip(Teff_norm)), dtype=torch.float32)
+    # change between MLP1 and MLP2
+    labels_tensor = torch.tensor(list(zip(Teff_norm, logg_norm)), dtype=torch.float32)
+    # labels_tensor = torch.tensor(list(zip(Teff_norm, logL_norm)), dtype=torch.float32)
 
     return data_normalized, labels_tensor, (Teff_mean, Teff_std, logg_mean, logg_std, Msp_mean, Msp_std, logL_mean, logL_std)
 
@@ -169,11 +177,16 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     all_preds = np.array(all_preds)
     all_ys = np.array(all_ys)
 
-    # all_preds = denormalize_data(all_preds, [Teff_mean, logg_mean, Msp_mean], [Teff_std, logg_std, Msp_std])
-    # all_ys = denormalize_data(all_ys, [Teff_mean, logg_mean, Msp_mean], [Teff_std, logg_std, Msp_std])
+    # # TEST JUST TEFF
+    # all_preds = denormalize_data(all_preds, [Teff_mean], [Teff_std])
+    # all_ys = denormalize_data(all_ys, [Teff_mean], [Teff_std])
 
-    all_preds = denormalize_data(all_preds, [Teff_mean, logL_mean], [Teff_std, logL_std])
-    all_ys = denormalize_data(all_ys, [Teff_mean, logL_mean], [Teff_std, logL_std])
+    # change between MLP1 and MLP2
+    all_preds = denormalize_data(all_preds, [Teff_mean, logg_mean], [Teff_std, logg_std])
+    all_ys = denormalize_data(all_ys, [Teff_mean, logg_mean], [Teff_std, logg_std])
+
+    # all_preds = denormalize_data(all_preds, [Teff_mean, logL_mean], [Teff_std, logL_std])
+    # all_ys = denormalize_data(all_ys, [Teff_mean, logL_mean], [Teff_std, logL_std])
     
     plt.figure(figsize=(10, 6))
     plt.scatter(all_ys[:, 0], all_preds[:, 0], alpha=0.3)
@@ -186,26 +199,18 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     wandb.log({"MLP Predicted vs Actual Teff": wandb.Image("pred_vs_act_Teff.png", caption="Predictions vs. Actual Teff at Epoch {}".format(epoch))})
     plt.close()
 
+    # only plot next 4 paragraphs for MLP1
+
+    plt.figure(figsize=(10, 6))
     plt.scatter(all_ys[:, 1], all_preds[:, 1], alpha=0.3)
-    plt.xlabel('Actual logL')
-    plt.ylabel('Predicted logL')
-    plt.title('Predicted vs Actual logL')
+    plt.xlabel('Actual logg')
+    plt.ylabel('Predicted logg')
+    plt.title('Predicted vs Actual logg')
     plt.plot([all_ys[:, 1].min(), all_ys[:, 1].max()], [all_ys[:, 1].min(), all_ys[:, 1].max()], 'r')
     plt.grid(True)
-    plt.savefig("pred_vs_act_logL.png")
-    wandb.log({"MLP Predicted vs Actual logL": wandb.Image("pred_vs_act_logL.png", caption="Predictions vs. Actual logL at Epoch {}".format(epoch))})
+    plt.savefig("pred_vs_act_logg.png")
+    wandb.log({"MLP Predicted vs Actual logg": wandb.Image("pred_vs_act_logg.png", caption="Predictions vs. Actual logg at Epoch {}".format(epoch))})
     plt.close()
-
-    # plt.figure(figsize=(10, 6))
-    # plt.scatter(all_ys[:, 1], all_preds[:, 1], alpha=0.3)
-    # plt.xlabel('Actual logg')
-    # plt.ylabel('Predicted logg')
-    # plt.title('Predicted vs Actual logg')
-    # plt.plot([all_ys[:, 1].min(), all_ys[:, 1].max()], [all_ys[:, 1].min(), all_ys[:, 1].max()], 'r')
-    # plt.grid(True)
-    # plt.savefig("pred_vs_act_logg.png")
-    # wandb.log({"MLP Predicted vs Actual logg": wandb.Image("pred_vs_act_logg.png", caption="Predictions vs. Actual logg at Epoch {}".format(epoch))})
-    # plt.close()
 
     # plt.figure(figsize=(10, 6))
     # plt.scatter(all_ys[:, 2], all_preds[:, 2], alpha=0.3)
@@ -218,40 +223,51 @@ def test_loop(dataloader, model, loss_fn, epoch, norm_params):
     # wandb.log({"MLP Predicted vs Actual Msp": wandb.Image("pred_vs_act_Msp.png", caption="Predictions vs. Actual Msp at Epoch {}".format(epoch))})
     # plt.close()
 
-    # print('all ys', all_ys)
-    # print('all preds', all_preds)
-    # actual_logL = calculate_lum_from_teff_logg(np.array(all_ys[:, 0], dtype=np.float64), np.array(all_ys[:, 1], dtype=np.float64), np.array(all_ys[:, 2], dtype=np.float64))
-    # print('actual logL', actual_logL)
-    # pred_logL = calculate_lum_from_teff_logg(np.array(all_preds[:, 0], dtype=np.float64), np.array(all_preds[:, 1], dtype=np.float64), np.array(all_preds[:, 2], dtype=np.float64))
-    # print('pred logL', pred_logL)
-    # print('actual Teff', all_ys[:, 0])
-    # print('pred Teff', all_preds[:, 0])
-    # plt.figure(figsize=(10, 6))
-    # plt.scatter(actual_logL, pred_logL, alpha=0.3)
+    print('all ys', all_ys)
+    print('all preds', all_preds)
+    actual_logL = calculate_lum_from_teff_logg(np.array(all_ys[:, 0], dtype=np.float64), np.array(all_ys[:, 1], dtype=np.float64), False)
+    print('actual logL', actual_logL)
+    pred_logL = calculate_lum_from_teff_logg(np.array(all_preds[:, 0], dtype=np.float64), np.array(all_preds[:, 1], dtype=np.float64), False)
+    print('pred logL', pred_logL)
+    print('actual Teff', all_ys[:, 0])
+    print('pred Teff', all_preds[:, 0])
+    plt.figure(figsize=(10, 6))
+    plt.scatter(actual_logL, pred_logL, alpha=0.3)
+    plt.xlabel('Actual logL')
+    plt.ylabel('Predicted logL')
+    plt.title('Predicted vs Actual Spectroscopic logL')
+    plt.plot([min(actual_logL), max(actual_logL)], [min(actual_logL), max(actual_logL)], 'r')
+    plt.grid(True)
+    plt.savefig("pred_vs_act_logL.png")
+    wandb.log({"MLP Predicted vs Actual logL": wandb.Image("pred_vs_act_logL.png", caption="Predictions vs. Actual logL at Epoch {}".format(epoch))})
+    plt.close()
+
+    print('R2 score of logL at Epoch ', epoch, ": ", r2_score(actual_logL, pred_logL))
+    print('R2 score of Teff at Epoch ', epoch, ": ", r2_score(all_ys[:, 0], all_preds[:, 0]))
+    print('R2 score of logg at Epoch ', epoch, ": ", r2_score(all_ys[:, 1], all_preds[:, 1]))
+    # print('R2 score of Msp at Epoch ', epoch, ": ", r2_score(all_ys[:, 2], all_preds[:, 2]))
+
+    # plt.scatter(all_ys[:, 1], all_preds[:, 1], alpha=0.3)
     # plt.xlabel('Actual logL')
     # plt.ylabel('Predicted logL')
-    # plt.title('Predicted vs Actual Spectroscopic logL')
-    # plt.plot([min(actual_logL), max(actual_logL)], [min(actual_logL), max(actual_logL)], 'r')
+    # plt.title('Predicted vs Actual logL')
+    # plt.plot([all_ys[:, 1].min(), all_ys[:, 1].max()], [all_ys[:, 1].min(), all_ys[:, 1].max()], 'r')
     # plt.grid(True)
     # plt.savefig("pred_vs_act_logL.png")
     # wandb.log({"MLP Predicted vs Actual logL": wandb.Image("pred_vs_act_logL.png", caption="Predictions vs. Actual logL at Epoch {}".format(epoch))})
     # plt.close()
 
-    # mse = mean_squared_error(actual_logL, pred_logL)
-    # r2 = r2_score(actual_logL, pred_logL)
-    mse_logL = mean_squared_error(all_ys[:, 1], all_preds[:, 1])
-    print('MSE of logL at Epoch ', epoch, ': ', mse_logL)
+    # mse_logL = mean_squared_error(all_ys[:, 1], all_preds[:, 1])
+    # print('MSE of logL at Epoch ', epoch, ': ', mse_logL)
+    mse_logL = mean_squared_error(actual_logL, pred_logL)
+    print('MSE of logL at Epoch ', epoch, ': ', mse_logL )
     mse_Teff = mean_squared_error(all_ys[:, 0], all_preds[:, 0])
     print('MSE of Teff at Epoch ', epoch, ': ', mse_Teff)
     
-    r2_logL = r2_score(all_ys[:, 1], all_preds[:, 1])
-    print('R2 score of logL at Epoch ', epoch, ": ", r2_logL)
-    r2_Teff = r2_score(all_ys[:, 0], all_preds[:, 0])
-    print('R2 score of Teff at Epoch ', epoch, ": ", r2_Teff)
-    print('actual logL: ', all_ys[:, 1])
-    print('pred logL: ', all_preds[:, 1])
-    print('actual Teff: ', all_ys[:, 0])
-    print('pred Teff: ', all_preds[:, 0])
+    # print('actual logL: ', all_ys[:, 1])
+    # print('pred logL: ', all_preds[:, 1])
+    # print('actual Teff: ', all_ys[:, 0])
+    # print('pred Teff: ', all_preds[:, 0])
 
     return avg_loss, all_ys, all_preds
 
@@ -267,6 +283,7 @@ if __name__ == '__main__':
     print('data normalized', data_normalized)
     train_loader, test_loader, test_dataset = create_dataloaders(data_normalized, labels_tensor, batch_size)
     loss_fn = nn.MSELoss().cuda()
+    # output_size=3 for MLP1, output_size=2 for MLP2
     model = MLP(input_size=4, output_size=2).cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=100, verbose=True)
